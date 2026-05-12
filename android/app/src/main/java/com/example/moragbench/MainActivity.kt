@@ -653,7 +653,7 @@ class MainActivity : AppCompatActivity() {
 
     fun freeResources() {
         tts?.shutdown()
-        if (llm.isInitialized) llm.shutdown()
+        if (::llm.isInitialized) llm.shutdown()
         if (this::embeddingGenerator.isInitialized) embeddingGenerator.close()
     }
 

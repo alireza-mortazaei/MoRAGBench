@@ -65,7 +65,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     // ONNX Runtime (Android)
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.25.0")
 
     // org.json library
     implementation("org.json:json:20240303")
