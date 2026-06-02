@@ -25,7 +25,7 @@ class ServerService : Service() {
 
         Thread {
             try {
-                server = HttpServer(Constants.PORT)
+                server = HttpServer(applicationContext, Constants.PORT)
                 server?.start()
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to start HTTP server", t)

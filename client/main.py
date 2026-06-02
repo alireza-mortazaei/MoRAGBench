@@ -100,6 +100,24 @@ def stop_service():
 
 def adb_forward():
     run(ADB + ["forward", f"tcp:{PORT}", f"tcp:{PORT}"])
+    
+def prepare_dirs(dirs: list[str]):
+    payload = {"dirs": dirs}
+    r = requests.post(
+        HTTP_BASE + "/prepare_dirs",
+        json=payload
+    )
+    print("Response:", r.text)
+    r.raise_for_status()
+    print(f"App created {len(dirs)} directories")
+    
+def push_dir_files(local_dir: str, remote_dir: str):
+    """Push every file (non-recursive) from local_dir into remote_dir."""
+    remote_dir = remote_dir.rstrip("/") + "/"
+    for name in os.listdir(local_dir):
+        src = os.path.join(local_dir, name)
+        if os.path.isfile(src):
+            adb_push_files(src, remote_dir)
 
 def start_benchmark(test_type: TestType):
     payload = {"test_type": test_type.value}
@@ -161,32 +179,6 @@ def main(args):
     config_output_path = TASK_CONFIG_PATH if test_type == TestType.TASK else ANN_CONFIG_PATH
     bench_model = parse_config(args.set, raw_cfg, test_type, config_output_path)
     
-    if test_type == TestType.TASK:
-        print("\n==== Parsing Downstream Tasks ====\n")
-        parse_task(bench_model.downstream_task, bench_model.hf_token, DOWNSTREAM_TASK_DIR)
-        
-        print("\n==== Parsing LLM ====\n")
-        parse_llm(bench_model.rag_pipeline.llm, bench_model.hf_token, LLM_DIR)
-        
-        print("\n==== Parsing Embedding Model ====\n")
-        parse_embedding(bench_model.rag_pipeline.embedding, bench_model.hf_token, EMBEDDING_DIR)
-        
-        print("\n==== Moving Files to Server ====\n")
-        create_server_dir(f"{SERVER_BASE}/{TASK_DIR}")
-        adb_push_files(DOWNSTREAM_TASK_DIR, f"{SERVER_BASE}/{TASK_DIR}")
-        adb_push_files(LLM_DIR, f"{SERVER_BASE}/{TASK_DIR}")
-        adb_push_files(EMBEDDING_DIR, f"{SERVER_BASE}/{TASK_DIR}")
-        adb_push_files(f"{CLIENT_BASE}/{TASK_CONFIG_PATH}", f"{SERVER_BASE}/{TASK_CONFIG_PATH}")
-    else:
-        print("\n==== Parsing ANN Dataset ====\n")
-        parse_ann(bench_model.ann_dataset, ANN_DATASET_DIR, CACHE_DIR)
-        
-        print("\n==== Moving Files to Server ====\n")
-        dataset_name = bench_model.ann_dataset.name.value
-        create_server_dir(SERVER_ANN_DATASET_DIR)
-        adb_push_files(f"{CLIENT_BASE}/{ANN_DATASET_DIR}/{dataset_name}", SERVER_ANN_DATASET_DIR)
-        adb_push_files(f"{CLIENT_BASE}/{ANN_CONFIG_PATH}", f"{SERVER_BASE}/{ANN_CONFIG_PATH}")
-        
     # Save config file again
     with open(config_output_path, "w") as f:
         json.dump(bench_model.model_dump(mode="json"), f, indent=2)
@@ -198,6 +190,71 @@ def main(args):
 
     print(f"\n==== Forwarding Port {PORT} ====\n")
     adb_forward()
+    
+    print("\n==== Preparing App-Owned Directories ====\n")
+    time.sleep(2)  # let the server come up before HTTP calls
+
+    if test_type == TestType.TASK:
+        task_name = bench_model.downstream_task.name.value
+        llm_name = f"{bench_model.rag_pipeline.llm.model_name.value}_{bench_model.rag_pipeline.llm.dtype.value}"
+        embed_name = bench_model.rag_pipeline.embedding.model_name.value
+
+        dirs_to_create = [
+            TASK_DIR,
+            f"{TASK_DIR}/downstream_task",
+            f"{TASK_DIR}/downstream_task/{task_name}",
+            f"{TASK_DIR}/llm",
+            f"{TASK_DIR}/llm/{llm_name}",
+            f"{TASK_DIR}/embedding",
+            f"{TASK_DIR}/embedding/{embed_name}",
+            f"{TASK_DIR}/{SERVER_RESULTS_DIR}",
+        ]
+        prepare_dirs(dirs_to_create)
+
+        print("\n==== Parsing Downstream Tasks ====\n")
+        parse_task(bench_model.downstream_task, bench_model.hf_token, DOWNSTREAM_TASK_DIR)
+
+        print("\n==== Parsing LLM ====\n")
+        parse_llm(bench_model.rag_pipeline.llm, bench_model.hf_token, LLM_DIR)
+
+        print("\n==== Parsing Embedding Model ====\n")
+        parse_embedding(bench_model.rag_pipeline.embedding, bench_model.hf_token, EMBEDDING_DIR)
+
+        print("\n==== Moving Files to Server ====\n")
+        push_dir_files(
+            f"{DOWNSTREAM_TASK_DIR}/{task_name}",
+            f"{SERVER_BASE}/{TASK_DIR}/downstream_task/{task_name}",
+        )
+        push_dir_files(
+            f"{LLM_DIR}/{llm_name}",
+            f"{SERVER_BASE}/{TASK_DIR}/llm/{llm_name}",
+        )
+        push_dir_files(
+            f"{EMBEDDING_DIR}/{embed_name}",
+            f"{SERVER_BASE}/{TASK_DIR}/embedding/{embed_name}",
+        )
+        adb_push_files(f"{CLIENT_BASE}/{TASK_CONFIG_PATH}", f"{SERVER_BASE}/{TASK_CONFIG_PATH}")
+    else:
+        dataset_name = bench_model.ann_dataset.name.value
+
+        dirs_to_create = [
+            ANN_DIR,
+            f"{ANN_DIR}/ann_dataset",
+            f"{ANN_DIR}/ann_dataset/{dataset_name}",
+            f"{ANN_DIR}/{SERVER_RESULTS_DIR}",
+        ]
+        prepare_dirs(dirs_to_create)
+
+        print("\n==== Parsing ANN Dataset ====\n")
+        parse_ann(bench_model.ann_dataset, ANN_DATASET_DIR, CACHE_DIR)
+
+        print("\n==== Moving Files to Server ====\n")
+        push_dir_files(
+            f"{CLIENT_BASE}/{ANN_DATASET_DIR}/{dataset_name}",
+            f"{SERVER_ANN_DATASET_DIR}/{dataset_name}",
+        )
+        adb_push_files(f"{CLIENT_BASE}/{ANN_CONFIG_PATH}", f"{SERVER_BASE}/{ANN_CONFIG_PATH}")
+        
 
     print("\n==== Starting Benchmark ====\n")
     time.sleep(2)  # wait a bit for server to be ready
