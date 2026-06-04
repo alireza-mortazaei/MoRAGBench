@@ -43,7 +43,9 @@ data class FloatMetricStats(
 
 @Serializable
 data class CpuMetrics(
-    val processUsagePercent: FloatMetricStats
+    val processUsagePercent: FloatMetricStats,
+    val averageProcessUsagePercentPerCore: FloatMetricStats,
+    val availableProcessors: Int
 )
 
 class FloatStats {
@@ -232,6 +234,7 @@ class HardwareMetricsEngine(
     }
 
     fun stop(): MetricsResult {
+        // Only cancel the sampling job. The provided scope is owned by the benchmark caller.
         job?.cancel()
 
         memoryStats.add(MemorySampler.sample(context))
@@ -250,10 +253,16 @@ class HardwareMetricsEngine(
                 )
             else null
 
+        val availableProcessors = Runtime.getRuntime().availableProcessors()
         val cpuMetrics =
             if (cpuStats.hasSamples())
                 CpuMetrics(
-                    processUsagePercent = FloatMetricStats(cpuStats.mean(), cpuStats.peak)
+                    processUsagePercent = FloatMetricStats(cpuStats.mean(), cpuStats.peak),
+                    averageProcessUsagePercentPerCore = FloatMetricStats(
+                        cpuStats.mean() / availableProcessors,
+                        cpuStats.peak / availableProcessors
+                    ),
+                    availableProcessors = availableProcessors
                 )
             else null
 
