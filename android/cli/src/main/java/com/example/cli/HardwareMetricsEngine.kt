@@ -44,7 +44,9 @@ data class FloatMetricStats(
 @Serializable
 data class CpuMetrics(
     val processUsagePercent: FloatMetricStats,
-    val averageProcessUsagePercentPerCore: FloatMetricStats,
+    // Peak is not the peak per-core CPU utilization.
+    // It is the per-core average from the sample where total process CPU utilization was highest.
+    val processUsagePercentPerCore: FloatMetricStats,
     val availableProcessors: Int
 )
 
@@ -258,7 +260,7 @@ class HardwareMetricsEngine(
             if (cpuStats.hasSamples())
                 CpuMetrics(
                     processUsagePercent = FloatMetricStats(cpuStats.mean(), cpuStats.peak),
-                    averageProcessUsagePercentPerCore = FloatMetricStats(
+                    processUsagePercentPerCore = FloatMetricStats(
                         cpuStats.mean() / availableProcessors,
                         cpuStats.peak / availableProcessors
                     ),
