@@ -7,7 +7,8 @@ class DownstreamTaskName(Enum):
     TRIVIA_QA = "trivia_qa"
     SQUAD = "squad"
     HOTPOT_QA = "hotpot_qa"
-    
+    DROP = "drop"
+
 class CorpusScope(Enum):
     LIMITED = "limited" # Use documents from the "limit" questions only
     ALL = "all" # Use all documents in the dataset

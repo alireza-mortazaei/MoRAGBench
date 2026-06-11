@@ -12,7 +12,8 @@ from utils.shared import sample_items
 DATASET_CONFIGS = {
     DownstreamTaskName.TRIVIA_QA: ("mandarjoshi/trivia_qa", "rc", "validation"),
     DownstreamTaskName.SQUAD: ("rajpurkar/squad_v2", "", "train"),
-    DownstreamTaskName.HOTPOT_QA: ("hotpotqa/hotpot_qa", "distractor", "validation")
+    DownstreamTaskName.HOTPOT_QA: ("hotpotqa/hotpot_qa", "distractor", "validation"),
+    DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation")
 }
 
 def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str):
@@ -130,6 +131,19 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
             for sentence in item['context']['sentences']:
                 doc_text = "\n".join(sentence)
                 documents_object[f"doc_{doc_id}"] = doc_text
+                doc_id += 1
+
+    elif name == DownstreamTaskName.DROP:
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            questions.append(item["question"])
+            references.append(item["answers_spans"]["spans"])
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            passage = item["passage"]
+
+            if passage not in documents_object.values():
+                documents_object[f"doc_{doc_id}"] = passage
                 doc_id += 1
     else:
         raise ValueError(f"{name} is not supported yet")
