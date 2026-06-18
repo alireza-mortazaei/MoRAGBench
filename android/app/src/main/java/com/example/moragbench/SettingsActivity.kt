@@ -13,7 +13,7 @@ object SupportedOptions {
 
     object Embedding {
         val BACKENDS = arrayOf("CPU", "XNNPACK", "NNAPI")
-        val MODELS = arrayOf("all-minilm-l6-v2", "all-minilm-l12-v2")
+        val MODELS = arrayOf("all-minilm-l6-v2", "all-minilm-l12-v2", "embeddinggemma")
     }
 
     object FAISS {

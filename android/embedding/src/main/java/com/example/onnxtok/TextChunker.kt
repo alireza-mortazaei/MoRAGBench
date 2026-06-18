@@ -83,10 +83,51 @@ class TextChunker(
             "token" -> chunkByTokens(text)
             "word" -> chunkByWords(text)
             "character" -> chunkByCharacters(text)
+            "sentence"  -> chunkBySentences(text)
             else -> throw IllegalArgumentException("Unknown chunking method: $chunkingMethod")
         }
     }
-    private fun chunkByTokens(text: String): List<String> {
+
+    private fun chunkBySentences(text: String): List<String> {
+        val sentenceRegex = Regex("(?<=[.!?])\\s+")
+        val sentences = text.split(sentenceRegex).filter { it.isNotBlank() }
+
+        val chunks = mutableListOf<String>()
+        var start = 0
+
+        while (start < sentences.size) {
+            val chunkSentences = mutableListOf<String>()
+            var tokenCount = 0
+            var end = start
+
+            // Keep adding sentences until we hit chunkSize (in tokens)
+            while (end < sentences.size) {
+                val sentenceTokens = tokenizer!!.tokenize(sentences[end]).ids.size
+                if (tokenCount + sentenceTokens > chunkSize && chunkSentences.isNotEmpty()) {
+                    break
+                }
+                chunkSentences.add(sentences[end])
+                tokenCount += sentenceTokens
+                end++
+            }
+
+            // Join sentences back into chunk
+            val chunkText = chunkSentences.joinToString(" ").trim()
+            if (chunkText.isNotEmpty()) chunks.add(chunkText)
+
+            // Handle overlap — go back N sentences
+            start = if (overlap > 0) {
+                maxOf(start + 1, end - overlap)
+            } else {
+                end
+            }
+        }
+        return chunks
+
+    }
+
+
+    private fun chunkByTokensOld(text: String): List<String> {
         val tokenIds = tokenizer!!.tokenize(text).ids
         val chunks = mutableListOf<String>()
         var start = 0
@@ -98,6 +139,28 @@ class TextChunker(
             if (chunkText.isNotEmpty()) chunks.add(chunkText)
             start += chunkSize - overlap
         }
+        return chunks
+    }
+
+    private fun chunkByTokens(text: String): List<String> {
+        val allTokenIds = tokenizer!!.tokenize(text).ids
+        val chunks = mutableListOf<String>()
+        var start = 0
+
+        while (start < allTokenIds.size) {
+            val end = minOf(start + chunkSize, allTokenIds.size)
+
+            val chunkFraction = (end - start).toDouble() / allTokenIds.size.toDouble()
+
+            val charStart = ((start.toDouble() / allTokenIds.size) * text.length).toInt()
+            val charEnd = minOf((charStart + (chunkFraction * text.length).toInt()), text.length)
+
+            val chunkText = text.substring(charStart, charEnd).trim()
+            if (chunkText.isNotEmpty()) chunks.add(chunkText)
+
+            start += chunkSize - overlap
+        }
+
         return chunks
     }
 
