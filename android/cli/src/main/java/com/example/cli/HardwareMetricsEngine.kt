@@ -32,13 +32,24 @@ data class PowerMetrics(
     val currentMa: FloatMetricStats,
     val voltageV: FloatMetricStats,
     val powerMw: FloatMetricStats,
-    val temperatureC: FloatMetricStats
+    val temperatureC: FloatMetricStats,
+    val isPlugged: Boolean,
+    val isCharging: Boolean,
+    val chargeCounter: ChargeCounterMetrics?
 )
 
 @Serializable
 data class FloatMetricStats(
     val mean: Float,
     val peak: Float
+)
+
+@Serializable
+data class ChargeCounterMetrics(
+    val startMicroAh: Int,
+    val endMicroAh: Int,
+    val consumedMicroAh: Int,
+    val estimatedEnergyJ: Float?
 )
 
 @Serializable
@@ -128,25 +139,54 @@ class PowerSampler(private val context: Context) {
     private val powerStats = FloatStats()
     private val temperatureStats = FloatStats()
 
+    private var isPlugged = false
+    private var isCharging = false
+    private var startChargeCounterMicroAh: Int? = null
+    private var endChargeCounterMicroAh: Int? = null
+
     /**
      * Sample current power consumption and update internal statistics.
      * @return Current power consumption in milliwatts (mW), or null if measurement failed
      */
     fun sample(): Float? {
         try {
-            // Get current in microamperes (μA)
-            val currentNowMicroAmps = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-            val currentAvgRaw = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+            // Get battery current in microamperes (μA). Some devices return 0 or Int.MIN_VALUE
+            // when a current reading is unavailable, so prefer CURRENT_NOW and fall back to CURRENT_AVERAGE.
+            val chargeCounterMicroAh = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            if (chargeCounterMicroAh != Int.MIN_VALUE && chargeCounterMicroAh > 0) {
+                if (startChargeCounterMicroAh == null) {
+                    startChargeCounterMicroAh = chargeCounterMicroAh
+                }
+                endChargeCounterMicroAh = chargeCounterMicroAh
+            }
 
-            // Some devices return negative values when discharging
-            val currentMa = abs(currentNowMicroAmps) / 1000f
+            val currentNowMicroAmps = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            val currentAverageMicroAmps = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+            val currentMicroAmps = when {
+                currentNowMicroAmps != 0 && currentNowMicroAmps != Int.MIN_VALUE -> currentNowMicroAmps
+                currentAverageMicroAmps != 0 && currentAverageMicroAmps != Int.MIN_VALUE -> currentAverageMicroAmps
+                else -> return null
+            }
+
+            // Some devices return negative values when discharging. Use magnitude for battery-side power estimate.
+            val currentMa = abs(currentMicroAmps) / 1000f
 
             // Get voltage and temperature from battery intent
             val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
             val batteryStatus = context.registerReceiver(null, intentFilter)
 
+            val pluggedStatus = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+            val batteryState = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            isPlugged = isPlugged || pluggedStatus != 0
+            isCharging = isCharging ||
+                batteryState == BatteryManager.BATTERY_STATUS_CHARGING ||
+                batteryState == BatteryManager.BATTERY_STATUS_FULL
+
             // Get voltage in millivolts (mV)
             val voltageMilliVolts = batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+            if (voltageMilliVolts !in 3000..5000) {
+                return null
+            }
             val voltageV = voltageMilliVolts / 1000f
 
             // Get temperature in deci-degrees Celsius (e.g., 251 = 25.1°C)
@@ -178,7 +218,30 @@ class PowerSampler(private val context: Context) {
             currentMa = FloatMetricStats(currentStats.mean(), currentStats.peak),
             voltageV = FloatMetricStats(voltageStats.mean(), voltageStats.peak),
             powerMw = FloatMetricStats(powerStats.mean(), powerStats.peak),
-            temperatureC = FloatMetricStats(temperatureStats.mean(), temperatureStats.peak)
+            temperatureC = FloatMetricStats(temperatureStats.mean(), temperatureStats.peak),
+            isPlugged = isPlugged,
+            isCharging = isCharging,
+            chargeCounter = buildChargeCounterMetrics()
+        )
+    }
+
+    private fun buildChargeCounterMetrics(): ChargeCounterMetrics? {
+        val start = startChargeCounterMicroAh ?: return null
+        val end = endChargeCounterMicroAh ?: return null
+        val consumed = start - end
+        if (consumed <= 0) return null
+
+        val voltageMean = voltageStats.mean()
+        val estimatedEnergyJ =
+            if (voltageMean in 3.0f..5.0f)
+                (consumed / 1_000_000f) * 3600f * voltageMean
+            else
+                null
+        return ChargeCounterMetrics(
+            startMicroAh = start,
+            endMicroAh = end,
+            consumedMicroAh = consumed,
+            estimatedEnergyJ = estimatedEnergyJ
         )
     }
 
@@ -186,7 +249,10 @@ class PowerSampler(private val context: Context) {
         val currentMa: FloatMetricStats,
         val voltageV: FloatMetricStats,
         val powerMw: FloatMetricStats,
-        val temperatureC: FloatMetricStats
+        val temperatureC: FloatMetricStats,
+        val isPlugged: Boolean,
+        val isCharging: Boolean,
+        val chargeCounter: ChargeCounterMetrics?
     )
 }
 
@@ -245,13 +311,18 @@ class HardwareMetricsEngine(
 
         val samplerStats = powerSampler.getStats()
 
+        val chargeCounterMetrics = samplerStats.chargeCounter
+
         val powerMetrics =
-            if (powerStats.mean() > 0f)
+            if (powerStats.mean() > 0f || chargeCounterMetrics != null)
                 PowerMetrics(
                     currentMa = FloatMetricStats(samplerStats.currentMa.mean, samplerStats.currentMa.peak),
                     voltageV = FloatMetricStats(samplerStats.voltageV.mean, samplerStats.voltageV.peak),
                     powerMw = FloatMetricStats(samplerStats.powerMw.mean, samplerStats.powerMw.peak),
-                    temperatureC = FloatMetricStats(samplerStats.temperatureC.mean, samplerStats.temperatureC.peak)
+                    temperatureC = FloatMetricStats(samplerStats.temperatureC.mean, samplerStats.temperatureC.peak),
+                    isPlugged = samplerStats.isPlugged,
+                    isCharging = samplerStats.isCharging,
+                    chargeCounter = chargeCounterMetrics
                 )
             else null
 
