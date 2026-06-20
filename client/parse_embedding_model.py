@@ -3,12 +3,14 @@ import os
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
 import shutil
+import onnx
 
 
 # LLM Tuple of (hf_model_path, not_supported_dtype)
 EMBEDDING_CONFIGS = {
     SupportedEmbeddingModel.ALL_MINILM_L6_V2: ("sentence-transformers/all-MiniLM-L6-v2", None),
     SupportedEmbeddingModel.ALL_MINILM_L12_V2: ("sentence-transformers/all-MiniLM-L12-v2", None),
+    SupportedEmbeddingModel.EMBEDDINGGEMMA: ("onnx-community/embeddinggemma-300m-ONNX", None),
 }
 
 
@@ -66,5 +68,44 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
                 raise RuntimeError("Invalid or missing Hugging Face token") from e
             else:
                 raise RuntimeError("Error downloading Embedding model") from e
+    elif name == SupportedEmbeddingModel.EMBEDDINGGEMMA:
+        try:
+            snapshot_download(
+                repo_id=embedding_hf_path,
+                local_dir=dir_path,
+                token=token,
+                allow_patterns=[
+                    "tokenizer.json",
+                    "onnx/model_no_gather_q4.onnx",
+                    "onnx/model_no_gather_q4.onnx_data",
+                ],
+            )
+            
+            # Merge external data into single file
+            
+            model = onnx.load(
+                os.path.join(dir_path, "onnx", "model_no_gather_q4.onnx"),
+                load_external_data=True
+            )
+            onnx.save(
+                model,
+                os.path.join(dir_path, "model.onnx"),
+                save_as_external_data=False
+            )
+            
+            # Cleanup onnx directory
+            shutil.rmtree(os.path.join(dir_path, "onnx"))
+
+            # Move tokenizer to dir_path
+            shutil.move(
+                os.path.join(dir_path, "tokenizer.json"),
+                os.path.join(dir_path, "tokenizer.json")
+            )
+            
+        except HfHubHTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                raise RuntimeError("Invalid or missing Hugging Face token") from e
+            else:
+                raise RuntimeError("Error downloading EmbeddingGemma model") from e
     
     print(f"\nINFO: LLM has been downloaded and saved at: {dir_path}")

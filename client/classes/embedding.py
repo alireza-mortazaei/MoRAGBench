@@ -12,6 +12,7 @@ class ChunkMethod(Enum):
 class SupportedEmbeddingModel(Enum):
     ALL_MINILM_L6_V2 = "all-minilm-l6-v2"
     ALL_MINILM_L12_V2 = "all-minilm-l12-v2"
+    EMBEDDINGGEMMA = "embeddinggemma"
     
 class SupportedEmbeddingDType(Enum):
     FLOAT32 = "float32"
@@ -20,6 +21,7 @@ class SupportedEmbeddingDType(Enum):
     FLOAT32_O3 = "float32-O3"
     FLOAT32_O4 = "float32-O4"
     INT8 = "int8"
+    Q4 = "q4"
 
 
 @dataclass 
