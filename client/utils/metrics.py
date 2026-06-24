@@ -191,7 +191,7 @@ def get_task_metrics(
         "predictions and references must have the same length"
         
     # Normalize metrics
-    predictions = [normalize_answer(p) for p in preds]
+    predictions = [normalize_answer(p) if p is not None else "" for p in preds]
     references = [[normalize_answer(r) for r in r_list] for r_list in refs]
 
 
@@ -224,10 +224,14 @@ def get_task_metrics(
         )
         
     # ---------- Dataset-level BLEU / ROUGE ----------
-    bleu_results = bleu.compute(
-        predictions=predictions,
-        references=references,
-    )
+
+    try:
+        bleu_results = bleu.compute(
+            predictions=predictions,
+            references=references,
+        )
+    except ZeroDivisionError:
+        bleu_results = {"bleu": 0.0}
 
     rouge_results = rouge.compute(
         predictions=predictions,

@@ -37,7 +37,10 @@ object SupportedLLMs {
                     { ctx, o -> buildQwen05B(ctx, null, o) },
 
             normalizeModelKey("Qwen2.5-1.5B-Instruct-Int8") to
-                    { ctx, o -> buildQwen15B(ctx, o) }
+                    { ctx, o -> buildQwen15B(ctx, o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Q4") to
+                    { ctx, o -> buildLlama32_1B(ctx, o) },
         )
 
     fun getAll(context: Context): List<ModelConfig> {
@@ -160,6 +163,58 @@ object SupportedLLMs {
             roleTokenIds = roles,
             scalarPosId = false,
             vocabSize = 151936,
+        )
+    }
+
+    //new model Llama 3.2
+    private fun buildLlama32_1B(context: Context, overrides: ModelPathOverrides?): ModelConfig {
+        val defaultTokenizerPath = "llm/llama-3.2-1B_q4/tokenizer.json"
+
+        val tokenizerSource =
+            overrides?.tokenizer
+                ?: TokenizerSource.Assets(defaultTokenizerPath)
+        val tokenizer = TokenizerBridge(context, tokenizerSource)
+        
+
+        val effectiveTokenizerPath = when (tokenizerSource) {
+            is TokenizerSource.Assets -> tokenizerSource.assetPath
+            is TokenizerSource.File -> tokenizerSource.absolutePath
+        }
+
+        val roles = RoleTokenIds(
+            systemStart = listOf(
+                tokenizer.getTokenId("<|start_header_id|>"),
+                tokenizer.getTokenId("system"),
+                tokenizer.getTokenId("<|end_header_id|>")
+            ),
+            userStart = listOf(
+                tokenizer.getTokenId("<|start_header_id|>"),
+                tokenizer.getTokenId("user"),
+                tokenizer.getTokenId("<|end_header_id|>")
+            ),
+            assistantStart = listOf(
+                tokenizer.getTokenId("<|start_header_id|>"),
+                tokenizer.getTokenId("assistant"),
+                tokenizer.getTokenId("<|end_header_id|>")
+            ),
+            endToken = tokenizer.getTokenId("<|eot_id|>")
+        )
+
+        return ModelConfig(
+            modelName = "Llama-3.2-1B-Instruct",
+            modelPath = overrides?.modelPath
+                ?: "llm/llama-3.2-1B_q4/model.onnx",
+            tokenizerPath = effectiveTokenizerPath,
+            eosTokenIds = setOf(128001, 128009),
+            numLayers = 16,
+            numKvHeads = 8,
+            headDim = 64,
+            batchSize = 1,
+            defaultSystemPrompt = "You are a helpful assistant.",
+            roleTokenIds = roles,
+            scalarPosId = false,
+            usePositionIds = false,
+            vocabSize = 128256
         )
     }
 }

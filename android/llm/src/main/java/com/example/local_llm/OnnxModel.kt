@@ -78,6 +78,20 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
             }
         }
 
+
+        val dataFilePath = "$filePath.data"
+        try {
+            val dataInputStream = assetManager.open(dataFilePath)
+            val outDataFile = File(context.filesDir, dataFilePath)
+            dataInputStream.use { input ->
+                FileOutputStream(outDataFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } catch (e: Exception) {
+            // .data file does not exist, that is fine for Qwen models
+        }
+        //end modifications
         return outFile
     }
 
@@ -397,9 +411,11 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
 
             val inputs = mutableMapOf(
                 "input_ids" to inputTensor,
-                "position_ids" to posTensor,
                 "attention_mask" to attnTensor
-            ).apply { putAll(past) }
+            ).apply {
+                if (config.usePositionIds) put("position_ids", posTensor)
+                putAll(past)
+            }
 
             val outputs = session.run(inputs)
 
@@ -469,9 +485,11 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
 
             val inputs = mutableMapOf(
                 "input_ids" to inputTensor,
-                "position_ids" to posTensor,
                 "attention_mask" to attnTensor
-            ).apply { putAll(past) }
+            ).apply {
+                if (config.usePositionIds) put("position_ids", posTensor)
+                putAll(past)
+            }
 
             val outputs = session.run(inputs)
 

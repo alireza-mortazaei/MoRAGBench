@@ -11,6 +11,14 @@ def load_jsonl(path):
 
 
 def compute_stats(values):
+    if not values:
+        return {
+            "avg": None,
+            "min": None,
+            "max": None,
+            "p95": None,
+            "p99": None,
+        }
     values = np.array(values)
     return {
         "avg": float(values.mean()),
@@ -67,8 +75,9 @@ def report_task_results(
 
     # Read JSONL
     for obj in load_jsonl(f"{results_dir}/{generation_metrics_file}"):
-        metrics = obj.get("metrics", {})
 
+       #change metrics = obj.get("metrics", {}) to metrics = obj.get("metrics") or {}
+        metrics = obj.get("metrics") or {}
         total_input_tokens += metrics.get("input_tokens", 0)
         total_output_tokens += metrics.get("generated_tokens", 0)
         total_duration_ms += metrics.get("overall_duration_ms", 0)
