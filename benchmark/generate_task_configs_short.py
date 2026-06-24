@@ -187,11 +187,15 @@ for dataset in ["trivia_qa"]:
             new_copy["rag_pipeline"]["faiss"]["top_k"] = top_k
             generated_configs.append(new_copy)
             
-            
+
     # Different LLMs
-    for llm_model in ["qwen2.5-1.5B"]:
+    for llm_model in ["qwen2.5-1.5B", "llama-3.2-1B"]:
         new_copy = copy.deepcopy(baseline)
         new_copy["rag_pipeline"]["llm"]["model_name"] = llm_model
+        # Llama only supports q4 dtype
+        if llm_model == "llama-3.2-1B":
+            new_copy["rag_pipeline"]["llm"]["dtype"] = "q4"
+            new_copy["rag_pipeline"]["llm"]["generate_until"] = ["\n\n"]
         generated_configs.append(new_copy)
         
     # Different dtypes
