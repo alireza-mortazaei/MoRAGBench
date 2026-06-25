@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Process
+import android.os.SystemClock
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import kotlin.math.abs
@@ -14,7 +16,8 @@ import kotlin.math.abs
 @Serializable
 data class MetricsResult(
     val memory: MemoryMetrics,
-    val power: PowerMetrics?
+    val power: PowerMetrics?,
+    val cpu: CpuMetrics?
 )
 
 @Serializable
@@ -26,16 +29,25 @@ data class MemoryMetrics(
 
 @Serializable
 data class PowerMetrics(
-    val currentMa: PowerStats,
-    val voltageV: PowerStats,
-    val powerMw: PowerStats,
-    val temperatureC: PowerStats
+    val currentMa: FloatMetricStats,
+    val voltageV: FloatMetricStats,
+    val powerMw: FloatMetricStats,
+    val temperatureC: FloatMetricStats
 )
 
 @Serializable
-data class PowerStats(
+data class FloatMetricStats(
     val mean: Float,
     val peak: Float
+)
+
+@Serializable
+data class CpuMetrics(
+    val processUsagePercent: FloatMetricStats,
+    // Peak is not the peak per-core CPU utilization.
+    // It is the per-core average from the sample where total process CPU utilization was highest.
+    val processUsagePercentPerCore: FloatMetricStats,
+    val availableProcessors: Int
 )
 
 class FloatStats {
@@ -50,6 +62,8 @@ class FloatStats {
     }
 
     fun mean(): Float = if (count == 0) 0f else (sum / count).toFloat()
+
+    fun hasSamples(): Boolean = count > 0
 }
 
 class LongStats {
@@ -74,6 +88,35 @@ object MemorySampler {
         val usedMb = (mi.totalMem - mi.availMem) / (1024 * 1024)
 
         return usedMb
+    }
+}
+
+class CpuSampler {
+    private var previousCpuTimeMs: Long? = null
+    private var previousWallTimeMs: Long? = null
+
+    fun sample(): Float? {
+        val currentCpuTimeMs = Process.getElapsedCpuTime()
+        val currentWallTimeMs = SystemClock.elapsedRealtime()
+
+        val lastCpuTimeMs = previousCpuTimeMs
+        val lastWallTimeMs = previousWallTimeMs
+
+        previousCpuTimeMs = currentCpuTimeMs
+        previousWallTimeMs = currentWallTimeMs
+
+        if (lastCpuTimeMs == null || lastWallTimeMs == null) {
+            return null
+        }
+
+        val cpuDeltaMs = currentCpuTimeMs - lastCpuTimeMs
+        val wallDeltaMs = currentWallTimeMs - lastWallTimeMs
+
+        if (wallDeltaMs <= 0L) {
+            return null
+        }
+
+        return (cpuDeltaMs.toFloat() / wallDeltaMs.toFloat()) * 100f
     }
 }
 
@@ -132,18 +175,18 @@ class PowerSampler(private val context: Context) {
      */
     fun getStats(): PowerSamplerStats {
         return PowerSamplerStats(
-            currentMa = PowerStats(currentStats.mean(), currentStats.peak),
-            voltageV = PowerStats(voltageStats.mean(), voltageStats.peak),
-            powerMw = PowerStats(powerStats.mean(), powerStats.peak),
-            temperatureC = PowerStats(temperatureStats.mean(), temperatureStats.peak)
+            currentMa = FloatMetricStats(currentStats.mean(), currentStats.peak),
+            voltageV = FloatMetricStats(voltageStats.mean(), voltageStats.peak),
+            powerMw = FloatMetricStats(powerStats.mean(), powerStats.peak),
+            temperatureC = FloatMetricStats(temperatureStats.mean(), temperatureStats.peak)
         )
     }
 
     data class PowerSamplerStats(
-        val currentMa: PowerStats,
-        val voltageV: PowerStats,
-        val powerMw: PowerStats,
-        val temperatureC: PowerStats
+        val currentMa: FloatMetricStats,
+        val voltageV: FloatMetricStats,
+        val powerMw: FloatMetricStats,
+        val temperatureC: FloatMetricStats
     )
 }
 
@@ -154,8 +197,10 @@ class HardwareMetricsEngine(
 ) {
     private val memoryStats = LongStats()
     private val powerStats = FloatStats()
+    private val cpuStats = FloatStats()
 
     val powerSampler = PowerSampler(context)
+    private val cpuSampler = CpuSampler()
 
     private var job: Job? = null
     private var memoryBefore: Long = 0
@@ -167,11 +212,16 @@ class HardwareMetricsEngine(
     }
 
     fun start() {
+        cpuSampler.sample()
+
         job = scope.launch(Dispatchers.Default) {
             while (isActive) {
                 try {
                     // Memory
                     memoryStats.add(MemorySampler.sample(context))
+
+                    // CPU
+                    cpuSampler.sample()?.let { cpuStats.add(it) }
 
                     // Power
                     powerSampler.sample()?.let { powerStats.add(it) }
@@ -186,18 +236,35 @@ class HardwareMetricsEngine(
     }
 
     fun stop(): MetricsResult {
+        // Only cancel the sampling job. The provided scope is owned by the benchmark caller.
         job?.cancel()
-        scope.cancel()
+
+        memoryStats.add(MemorySampler.sample(context))
+        cpuSampler.sample()?.let { cpuStats.add(it) }
+        powerSampler.sample()?.let { powerStats.add(it) }
 
         val samplerStats = powerSampler.getStats()
 
         val powerMetrics =
             if (powerStats.mean() > 0f)
                 PowerMetrics(
-                    currentMa = PowerStats(samplerStats.currentMa.mean, samplerStats.currentMa.peak),
-                    voltageV = PowerStats(samplerStats.voltageV.mean, samplerStats.voltageV.peak),
-                    powerMw = PowerStats(samplerStats.powerMw.mean, samplerStats.powerMw.peak),
-                    temperatureC = PowerStats(samplerStats.temperatureC.mean, samplerStats.temperatureC.peak)
+                    currentMa = FloatMetricStats(samplerStats.currentMa.mean, samplerStats.currentMa.peak),
+                    voltageV = FloatMetricStats(samplerStats.voltageV.mean, samplerStats.voltageV.peak),
+                    powerMw = FloatMetricStats(samplerStats.powerMw.mean, samplerStats.powerMw.peak),
+                    temperatureC = FloatMetricStats(samplerStats.temperatureC.mean, samplerStats.temperatureC.peak)
+                )
+            else null
+
+        val availableProcessors = Runtime.getRuntime().availableProcessors()
+        val cpuMetrics =
+            if (cpuStats.hasSamples())
+                CpuMetrics(
+                    processUsagePercent = FloatMetricStats(cpuStats.mean(), cpuStats.peak),
+                    processUsagePercentPerCore = FloatMetricStats(
+                        cpuStats.mean() / availableProcessors,
+                        cpuStats.peak / availableProcessors
+                    ),
+                    availableProcessors = availableProcessors
                 )
             else null
 
@@ -207,7 +274,8 @@ class HardwareMetricsEngine(
                 meanMB = memoryStats.mean(),
                 peakMB = memoryStats.peak
             ),
-            power = powerMetrics
+            power = powerMetrics,
+            cpu = cpuMetrics
         )
     }
 

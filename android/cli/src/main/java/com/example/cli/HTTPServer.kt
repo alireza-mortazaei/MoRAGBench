@@ -1,12 +1,14 @@
 package com.example.cli
 
+import android.content.Context
 import com.example.cli.Progress.TaskProgress
 import com.example.cli.Progress.ANNProgress
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.serialization.json.Json
+import org.json.JSONArray
 import org.json.JSONObject
 
-class HttpServer(port: Int = Constants.PORT): NanoHTTPD(port) {
+class HttpServer(private val context: Context, port: Int = Constants.PORT): NanoHTTPD(port) {
     override fun serve(session: IHTTPSession): Response {
         try {
             when (session.uri) {
@@ -73,6 +75,51 @@ class HttpServer(port: Int = Constants.PORT): NanoHTTPD(port) {
                         Response.Status.OK,
                         "application/json",
                         """{"status":$testStatus,"test_type":"$testType"}"""
+                    )
+                }
+                "/prepare_dirs" -> {
+                    if (session.method != Method.POST) {
+                        return newFixedLengthResponse(
+                            Response.Status.METHOD_NOT_ALLOWED,
+                            "text/plain",
+                            "Use POST"
+                        )
+                    }
+
+                    // Read POST body
+                    val body = HashMap<String, String>()
+                    session.parseBody(body)
+                    val rawJson = body["postData"] ?: ""
+
+                    val req = JSONObject(rawJson)
+                    val dirsArray = req.optJSONArray("dirs") ?: JSONArray()
+
+                    val base = context.getExternalFilesDir(null)
+                        ?: throw IllegalStateException("External files dir unavailable")
+                    val basePath = base.canonicalPath
+
+                    val created = JSONArray()
+                    for (i in 0 until dirsArray.length()) {
+                        val relative = dirsArray.getString(i)
+                        val target = base.resolve(relative)
+
+                        // Guard against path traversal escaping the sandbox
+                        if (!target.canonicalPath.startsWith(basePath)) {
+                            throw SecurityException("Illegal path outside sandbox: $relative")
+                        }
+
+                        target.mkdirs()
+                        created.put(target.absolutePath)
+                    }
+
+                    val resp = JSONObject()
+                    resp.put("created", created)
+                    resp.put("base", base.absolutePath)
+
+                    return newFixedLengthResponse(
+                        Response.Status.OK,
+                        "application/json",
+                        resp.toString()
                     )
                 }
             }
