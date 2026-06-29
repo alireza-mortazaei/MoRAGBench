@@ -50,7 +50,6 @@ class EmbeddingGenerator(private val context: Context) : AutoCloseable {
             File(path)
         } else {
             // Copy model from assets to cache (ONNX requires a file path)
-            //val outFile = File(context.cacheDir, path.substringAfterLast('/'))
             val outFile = File(context.cacheDir, path.replace("/", "_"))
             if (!outFile.exists()) {
                 context.assets.open(path).use { input ->

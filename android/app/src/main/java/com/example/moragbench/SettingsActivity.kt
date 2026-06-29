@@ -8,7 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 
 object SupportedOptions {
     object Chunker {
-        val METHODS = arrayOf("Token", "Word", "Character")
+        val METHODS = arrayOf("Token", "Word", "Character","sentence")
     }
 
     object Embedding {

@@ -5,6 +5,7 @@ import com.ml.shubham0204.sentence_embeddings.HFTokenizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import android.util.Log
 
 interface TokenizerSource {
     suspend fun readTokenizerBytes(): ByteArray
@@ -127,7 +128,7 @@ class TextChunker(
     }
 
 
-    private fun chunkByTokensOld(text: String): List<String> {
+    private fun chunkByTokens(text: String): List<String> {
         val tokenIds = tokenizer!!.tokenize(text).ids
         val chunks = mutableListOf<String>()
         var start = 0
@@ -139,28 +140,6 @@ class TextChunker(
             if (chunkText.isNotEmpty()) chunks.add(chunkText)
             start += chunkSize - overlap
         }
-        return chunks
-    }
-
-    private fun chunkByTokens(text: String): List<String> {
-        val allTokenIds = tokenizer!!.tokenize(text).ids
-        val chunks = mutableListOf<String>()
-        var start = 0
-
-        while (start < allTokenIds.size) {
-            val end = minOf(start + chunkSize, allTokenIds.size)
-
-            val chunkFraction = (end - start).toDouble() / allTokenIds.size.toDouble()
-
-            val charStart = ((start.toDouble() / allTokenIds.size) * text.length).toInt()
-            val charEnd = minOf((charStart + (chunkFraction * text.length).toInt()), text.length)
-
-            val chunkText = text.substring(charStart, charEnd).trim()
-            if (chunkText.isNotEmpty()) chunks.add(chunkText)
-
-            start += chunkSize - overlap
-        }
-
         return chunks
     }
 
