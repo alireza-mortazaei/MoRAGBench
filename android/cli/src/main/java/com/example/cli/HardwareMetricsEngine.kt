@@ -33,7 +33,9 @@ data class PowerMetrics(
     val voltageV: FloatMetricStats,
     val powerMw: FloatMetricStats,
     val temperatureC: FloatMetricStats,
+    // True if the device was connected to any external power source during sampling.
     val isPlugged: Boolean,
+    // True if Android reported the battery status as charging or full during sampling.
     val isCharging: Boolean,
     val chargeCounter: ChargeCounterMetrics?
 )
@@ -182,7 +184,10 @@ class PowerSampler(private val context: Context) {
                 batteryState == BatteryManager.BATTERY_STATUS_CHARGING ||
                 batteryState == BatteryManager.BATTERY_STATUS_FULL
 
-            // Get voltage in millivolts (mV)
+            // Get voltage in millivolts (mV). Android reports the current battery
+            // voltage via EXTRA_VOLTAGE. The 3.0V-5.0V range is a broad sanity
+            // check for single-cell phone Li-ion batteries, not an Android API guarantee.
+            // It rejects physically implausible vendor readings such as 3-4 mV.
             val voltageMilliVolts = batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
             if (voltageMilliVolts !in 3000..5000) {
                 return null
@@ -229,11 +234,10 @@ class PowerSampler(private val context: Context) {
         val start = startChargeCounterMicroAh ?: return null
         val end = endChargeCounterMicroAh ?: return null
         val consumed = start - end
-        if (consumed <= 0) return null
 
         val voltageMean = voltageStats.mean()
         val estimatedEnergyJ =
-            if (voltageMean in 3.0f..5.0f)
+            if (consumed > 0 && voltageMean in 3.0f..5.0f)
                 (consumed / 1_000_000f) * 3600f * voltageMean
             else
                 null
