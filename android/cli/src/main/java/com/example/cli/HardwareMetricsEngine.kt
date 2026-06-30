@@ -185,11 +185,11 @@ class PowerSampler(private val context: Context) {
                 batteryState == BatteryManager.BATTERY_STATUS_FULL
 
             // Get voltage in millivolts (mV). Android reports the current battery
-            // voltage via EXTRA_VOLTAGE. The 3.0V-5.0V range is a broad sanity
-            // check for single-cell phone Li-ion batteries, not an Android API guarantee.
-            // It rejects physically implausible vendor readings such as 3-4 mV.
+            // voltage via EXTRA_VOLTAGE. Reject clearly implausible low values such as
+            // 3-4 mV, while avoiding an upper bound because future devices may report
+            // higher valid battery voltages.
             val voltageMilliVolts = batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
-            if (voltageMilliVolts !in 3000..5000) {
+            if (voltageMilliVolts <= 1000) {
                 return null
             }
             val voltageV = voltageMilliVolts / 1000f
