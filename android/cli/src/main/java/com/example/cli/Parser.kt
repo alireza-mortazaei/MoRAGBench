@@ -71,10 +71,10 @@ class Parser(private val context: Context) {
         return config
     }
 
-    fun getTokenizerPath(modelName: String): String {
+    fun getTokenizerPath(modelName: String, dtype: String): String {
         return context.getExternalFilesDir(null)!!
             .resolve(Constants.EMBEDDING_DIR)
-            .resolve(modelName)
+            .resolve("${modelName}_${dtype}")
             .resolve("tokenizer.json")
             .absolutePath
 

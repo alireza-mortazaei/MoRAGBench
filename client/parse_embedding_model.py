@@ -58,26 +58,19 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
     if non_supported_dtype is not None and dtype in non_supported_dtype:
         raise ValueError(f"Dtype {dtype.value} is not supported for Embedding model {name.value}")
 
-    dir_path = f"{embedding_dir}/{name.value}"
+    # Folder name encodes both model name and dtype to keep variants separate
+    dir_path = f"{embedding_dir}/{name.value}_{dtype.value}"
     os.makedirs(dir_path, exist_ok=True)
 
     model_path = os.path.join(dir_path, "model.onnx")
     tokenizer_path = os.path.join(dir_path, "tokenizer.json")
-    metadata_path = os.path.join(dir_path, "metadata.json")
 
-    if os.path.exists(model_path) and os.path.exists(tokenizer_path) and os.path.exists(metadata_path):
-        with open(metadata_path, "r") as f:
-            metadata = json.load(f)
-        if metadata.get("dtype") == dtype.value:
-            print(f"\nINFO: Embedding model already exists at: {dir_path}, skipping download")
-            return
-        else:
-            print(f"\nINFO: Different dtype requested ({dtype.value} vs {metadata.get('dtype')}), re-downloading")
-            # Delete old model
-            os.remove(model_path)
+    # Skip download if this specific dtype variant already exists
+    if os.path.exists(model_path) and os.path.exists(tokenizer_path):
+        print(f"\nINFO: Embedding model already exists at: {dir_path}, skipping download")
+        return
 
     if name == SupportedEmbeddingModel.ALL_MINILM_L6_V2 or name == SupportedEmbeddingModel.ALL_MINILM_L12_V2:
-        # Figure out model file name based on dtype
         MODEL_NAME_BY_DTYPE = {
             SupportedEmbeddingDType.FLOAT32: "model.onnx",
             SupportedEmbeddingDType.FLOAT32_O1: "model_O1.onnx",
@@ -88,7 +81,6 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
         }
         model_name = MODEL_NAME_BY_DTYPE.get(dtype)
         
-        # Load LLM
         try:
             snapshot_download(
                 repo_id=embedding_hf_path,
@@ -100,21 +92,18 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
                 ],
             )
             
-            # Now move onnx/model_name to to dir_path/model.onnx
             shutil.move(
                 os.path.join(dir_path, "onnx", model_name),
-                os.path.join(dir_path, "model.onnx"),
+                model_path,
             )
-            
-            # Remove empty onnx directory
             os.removedirs(os.path.join(dir_path, "onnx"))
             
         except HfHubHTTPError as e:
-            # Authentication / authorization errors
             if e.response is not None and e.response.status_code in (401, 403):
                 raise RuntimeError("Invalid or missing Hugging Face token") from e
             else:
                 raise RuntimeError("Error downloading Embedding model") from e
+
     elif name == SupportedEmbeddingModel.EMBEDDINGGEMMA:
         model_file, data_file = EMBEDDINGGEMMA_MODEL_BY_DTYPE.get(dtype)
         
@@ -130,18 +119,16 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
                 ],
             )
             
-            # Merge external data into single file
             model = onnx.load(
                 os.path.join(dir_path, "onnx", model_file),
                 load_external_data=True
             )
             onnx.save(
                 model,
-                os.path.join(dir_path, "model.onnx"),
+                model_path,
                 save_as_external_data=False
             )
             
-            # Cleanup onnx directory
             shutil.rmtree(os.path.join(dir_path, "onnx"))
             
         except HfHubHTTPError as e:
@@ -149,8 +136,5 @@ def parse_embedding(embedding: Embedding, token: str | None, embedding_dir: str)
                 raise RuntimeError("Invalid or missing Hugging Face token") from e
             else:
                 raise RuntimeError("Error downloading EmbeddingGemma model") from e
-        # Save metadata
-        with open(metadata_path, "w") as f:
-            json.dump({"dtype": dtype.value, "model_name": name.value}, f)
 
-    print(f"\nINFO: LLM has been downloaded and saved at: {dir_path}")
+    print(f"\nINFO: Embedding model has been downloaded and saved at: {dir_path}")

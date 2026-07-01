@@ -155,8 +155,13 @@ class TaskBenchmark(private val context: Context) {
 
         // Append baseDir path to modelPath and tokenizerPath
         val baseDir = context.getExternalFilesDir(null)!!.resolve(Constants.TASK_BASE_DIR)
-        embeddingModel.modelPath = File(baseDir, embeddingModel.modelPath).canonicalPath
-        embeddingModel.tokenizerPath = File(baseDir, embeddingModel.tokenizerPath).canonicalPath
+        val embeddingFolderName = "${embeddingConfig.modelName}_${embeddingConfig.dtype}"
+        embeddingModel.modelPath = File(baseDir, "embedding/$embeddingFolderName/model.onnx").canonicalPath
+        embeddingModel.tokenizerPath = File(baseDir, "embedding/$embeddingFolderName/tokenizer.json").canonicalPath
+
+        // Log to verify correct model is being used
+        LiveLogger.info("Loading embedding model from: ${embeddingModel.modelPath}")
+        LiveLogger.info("Loading tokenizer from: ${embeddingModel.tokenizerPath}")
 
         val embeddingGenerator = EmbeddingGenerator(context)
         embeddingGenerator.initialize(embeddingModel, backend = embeddingConfig.backend)
@@ -167,7 +172,10 @@ class TaskBenchmark(private val context: Context) {
         LiveLogger.info("Embedding model initialized in ${overallMetrics.embeddingInitTimeMs / 1000} s")
 
         // Set tokenizer path
-        val embeddingTokenizerPath = parser.getTokenizerPath(taskConfig.ragPipeline.embedding.modelName)
+        val embeddingTokenizerPath = parser.getTokenizerPath(
+            taskConfig.ragPipeline.embedding.modelName,
+            taskConfig.ragPipeline.embedding.dtype
+        )
 
         // ****** Initialize LLM ******
         LiveLogger.info("Initializing LLM...")
