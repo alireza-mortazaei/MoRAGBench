@@ -8,7 +8,7 @@ import shutil
 LLM_CONFIGS = {
     SupportedLLM.QWEN25_0_5B: ("onnx-community/Qwen2.5-0.5B", None),
     SupportedLLM.QWEN25_1_5B: ("onnx-community/Qwen2.5-1.5B", None),
-    SupportedLLM.LLAMA32_1B: ("onnx-community/Llama-3.2-1B-Instruct-GENAI-ONNX", None),
+    SupportedLLM.LLAMA32_1B: ("onnx-community/Llama-3.2-1B-Instruct-ONNX", None),
 }
 
 def parse_llm(llm: LLM, token: str | None, llm_dir: str):
@@ -69,32 +69,67 @@ def parse_llm(llm: LLM, token: str | None, llm_dir: str):
 
     # Llama 3.2
     elif name == SupportedLLM.LLAMA32_1B:
-        # Only Q4 is supported for mobile
-        if dtype != SupportedLLMDType.Q4:
-            raise ValueError(f"Only Q4 dtype is supported for {name.value}")
+        MODEL_NAME_BY_DTYPE = {
+            SupportedLLMDType.FLOAT32: ("model.onnx", ["model.onnx_data", "model.onnx_data_1", "model.onnx_data_2"]),
+            SupportedLLMDType.FLOAT16: ("model_fp16.onnx", ["model_fp16.onnx_data", "model_fp16.onnx_data_1"]),
+            SupportedLLMDType.INT8: ("model_int8.onnx", []),
+            SupportedLLMDType.UINT8: ("model_uint8.onnx", []),
+            SupportedLLMDType.BNB4: ("model_bnb4.onnx", []),
+            SupportedLLMDType.Q4: ("model_q4.onnx", ["model_q4.onnx_data"]),
+            SupportedLLMDType.Q4F16: ("model_q4f16.onnx", ["model_q4f16.onnx_data"]),
+        }
 
-        model_folder = "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4"
+        if dtype not in MODEL_NAME_BY_DTYPE:
+            raise ValueError(f"Dtype {dtype.value} is not supported for {name.value}")
+
+        model_name, sidecar_names = MODEL_NAME_BY_DTYPE[dtype]
+
+        # Build list of model files to download from new repo
+        model_patterns = [f"onnx/{model_name}"]
+        for sidecar in sidecar_names:
+            model_patterns.append(f"onnx/{sidecar}")
 
         try:
+            # Download model files from new repo (supports all dtypes)
             snapshot_download(
                 repo_id=llm_hf_path,
                 local_dir=dir_path,
                 token=token,
-                allow_patterns=[
-                    f"{model_folder}/tokenizer.json",
-                    f"{model_folder}/model.onnx",
-                    f"{model_folder}/model.onnx.data",
-                ],
+                allow_patterns=model_patterns,
             )
 
-            # Move files from nested folder to dir_path root
-            src_folder = os.path.join(dir_path, model_folder)
-            shutil.move(os.path.join(src_folder, "model.onnx"), os.path.join(dir_path, "model.onnx"))
-            shutil.move(os.path.join(src_folder, "model.onnx.data"), os.path.join(dir_path, "model.onnx.data"))
-            shutil.move(os.path.join(src_folder, "tokenizer.json"), os.path.join(dir_path, "tokenizer.json"))
+            # Download tokenizer from GENAI-ONNX repo (compatible format
+            # for the native tokenizer library used in the Android app)
+            genai_folder = "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4"
+            snapshot_download(
+                repo_id="onnx-community/Llama-3.2-1B-Instruct-GENAI-ONNX",
+                local_dir=dir_path,
+                token=token,
+                allow_patterns=[f"{genai_folder}/tokenizer.json"],
+            )
 
-            # Clean up empty nested folders
-            shutil.rmtree(os.path.join(dir_path, "cpu_and_mobile"))
+            # Move model file to dir_path root as model.onnx
+            shutil.move(
+                os.path.join(dir_path, "onnx", model_name),
+                os.path.join(dir_path, "model.onnx"),
+            )
+
+            # Move sidecar files keeping their original names
+            for sidecar in sidecar_names:
+                shutil.move(
+                    os.path.join(dir_path, "onnx", sidecar),
+                    os.path.join(dir_path, sidecar),
+                )
+
+            # Move tokenizer from GENAI-ONNX nested folder to root
+            shutil.move(
+                os.path.join(dir_path, genai_folder, "tokenizer.json"),
+                os.path.join(dir_path, "tokenizer.json"),
+            )
+
+            # Clean up empty folders
+            shutil.rmtree(os.path.join(dir_path, "cpu_and_mobile"), ignore_errors=True)
+            os.removedirs(os.path.join(dir_path, "onnx"))
 
         except HfHubHTTPError as e:
             if e.response is not None and e.response.status_code in (401, 403):

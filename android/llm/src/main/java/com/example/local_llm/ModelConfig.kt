@@ -35,5 +35,6 @@ data class ModelConfig(
     val scalarPosId: Boolean = false,             // Enables scalar-style position IDs (used by Qwen3)
     val IsThinkingModeAvailable: Boolean = false, // Enables toggle for "thinking mode" (Qwen3-specific)
     val usePositionIds: Boolean = true,           // Set to false for models that don't accept position_ids (e.g. Llama)
+    val sidecarPaths: List<String> = emptyList(), // Sidecar weight files (e.g. model_q4.onnx_data)
     val vocabSize: Int,                           // Size of the tokenizer vocabulary
 )

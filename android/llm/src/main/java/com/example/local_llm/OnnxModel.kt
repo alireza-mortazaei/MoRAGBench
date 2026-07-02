@@ -79,17 +79,20 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
         }
 
 
-        val dataFilePath = "$filePath.data"
-        try {
-            val dataInputStream = assetManager.open(dataFilePath)
-            val outDataFile = File(context.filesDir, dataFilePath)
-            dataInputStream.use { input ->
-                FileOutputStream(outDataFile).use { output ->
-                    input.copyTo(output)
+        // Copy sidecar weight files if specified in config
+        for (sidecarPath in config.sidecarPaths) {
+            try {
+                val dataInputStream = assetManager.open(sidecarPath)
+                val outDataFile = File(context.filesDir, sidecarPath)
+                outDataFile.parentFile?.mkdirs()
+                dataInputStream.use { input ->
+                    FileOutputStream(outDataFile).use { output ->
+                        input.copyTo(output)
+                    }
                 }
+            } catch (e: Exception) {
+                // Sidecar file does not exist or could not be copied — skip silently
             }
-        } catch (e: Exception) {
-            // .data file does not exist, that is fine for Qwen models
         }
         //end modifications
         return outFile

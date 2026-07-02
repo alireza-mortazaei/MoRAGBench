@@ -214,6 +214,7 @@ object SupportedLLMs {
             roleTokenIds = roles,
             scalarPosId = false,
             usePositionIds = false,
+            sidecarPaths = listOf("llm/llama-3.2-1B_q4/model_q4.onnx_data"),
             vocabSize = 128256
         )
     }
