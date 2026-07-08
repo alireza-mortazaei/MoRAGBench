@@ -88,7 +88,6 @@ class SentenceEmbedding {
 
                 ortSession.run(inputTensorMap).use { outputs ->
                     val outputValue = outputs[0].value
-
                     val pooledEmbedding: FloatArray = when (outputValue) {
                         is Array<*> -> when {
                             // [1, seq_len, hidden]

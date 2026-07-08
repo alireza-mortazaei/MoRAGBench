@@ -197,7 +197,7 @@ def main(args):
     if test_type == TestType.TASK:
         task_name = bench_model.downstream_task.name.value
         llm_name = f"{bench_model.rag_pipeline.llm.model_name.value}_{bench_model.rag_pipeline.llm.dtype.value}"
-        embed_name = bench_model.rag_pipeline.embedding.model_name.value
+        embed_name = f"{bench_model.rag_pipeline.embedding.model_name.value}_{bench_model.rag_pipeline.embedding.dtype.value}"
 
         dirs_to_create = [
             TASK_DIR,

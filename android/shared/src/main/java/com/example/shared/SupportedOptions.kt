@@ -182,6 +182,13 @@ object SupportedEmbeddingModels {
             outputTensorName = "sentence_embedding",
             dim = 384
         ),
+        EmbeddingModel(
+            modelPath = "embedding/embeddinggemma/model.onnx",
+            tokenizerPath = "embedding/embeddinggemma/tokenizer.json",
+            useTokenTypeIds = false,
+            outputTensorName = "sentence_embedding",
+            dim = 768
+        ),
     )
 
     fun getAll(): List<EmbeddingModel> = models.map { it.copy() }
