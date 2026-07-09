@@ -39,7 +39,7 @@ class PromptBuilder(
         val newlineTokens = tokenizer.encode("\n\n").toList()
         val bosToken = tokenizer.getTokenId("<|begin_of_text|>")
 
-        return buildList {
+        val result = buildList {
             add(bosToken)
 
             addAll(config.roleTokenIds.systemStart)
@@ -55,6 +55,7 @@ class PromptBuilder(
             addAll(config.roleTokenIds.assistantStart)
             addAll(newlineTokens)
         }.toIntArray()
+        return result
     }
 
     fun buildQwenChatPrompt(messages: List<Message>, systemPrompt: String, maxTokens: Int = 500): IntArray {

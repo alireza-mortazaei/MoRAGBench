@@ -40,7 +40,25 @@ object SupportedLLMs {
                     { ctx, o -> buildQwen15B(ctx, o) },
 
             normalizeModelKey("Llama-3.2-1B-Instruct-Q4") to
-                    { ctx, o -> buildLlama32_1B(ctx, o) },
+                    { ctx, o -> buildLlama32_1B(ctx, "q4", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Q4F16") to
+                    { ctx, o -> buildLlama32_1B(ctx, "q4f16", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Int8") to
+                    { ctx, o -> buildLlama32_1B(ctx, "int8", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Uint8") to
+                    { ctx, o -> buildLlama32_1B(ctx, "uint8", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Bnb4") to
+                    { ctx, o -> buildLlama32_1B(ctx, "bnb4", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Float16") to
+                    { ctx, o -> buildLlama32_1B(ctx, "float16", o) },
+
+            normalizeModelKey("Llama-3.2-1B-Instruct-Float32") to
+                    { ctx, o -> buildLlama32_1B(ctx, "float32", o) },
         )
 
     fun getAll(context: Context): List<ModelConfig> {
@@ -167,8 +185,9 @@ object SupportedLLMs {
     }
 
     //new model Llama 3.2
-    private fun buildLlama32_1B(context: Context, overrides: ModelPathOverrides?): ModelConfig {
-        val defaultTokenizerPath = "llm/llama-3.2-1B_q4/tokenizer.json"
+    private fun buildLlama32_1B(context: Context, dtype: String, overrides: ModelPathOverrides?): ModelConfig {
+        val modelFolder = "llm/llama-3.2-1B_$dtype"
+        val defaultTokenizerPath = "$modelFolder/tokenizer.json"
 
         val tokenizerSource =
             overrides?.tokenizer
@@ -200,10 +219,29 @@ object SupportedLLMs {
             endToken = tokenizer.getTokenId("<|eot_id|>")
         )
 
+        val MODEL_SIDECAR_BY_DTYPE = mapOf(
+            "float32" to listOf("${modelFolder}/model.onnx_data", "${modelFolder}/model.onnx_data_1", "${modelFolder}/model.onnx_data_2"),
+            "float16" to listOf("${modelFolder}/model_fp16.onnx_data", "${modelFolder}/model_fp16.onnx_data_1"),
+            "int8" to emptyList(),
+            "uint8" to emptyList(),
+            "bnb4" to emptyList(),
+            "q4" to listOf("${modelFolder}/model_q4.onnx_data"),
+            "q4f16" to listOf("${modelFolder}/model_q4f16.onnx_data"),
+        )
+        val USE_POSITION_IDS_BY_DTYPE = mapOf(
+            "float32" to true,
+            "float16" to true,
+            "int8" to true,
+            "uint8" to true,
+            "bnb4" to true,
+            "q4" to false,
+            "q4f16" to false,
+        )
         return ModelConfig(
             modelName = "Llama-3.2-1B-Instruct",
             modelPath = overrides?.modelPath
-                ?: "llm/llama-3.2-1B_q4/model.onnx",
+                ?: "$modelFolder/model.onnx",
+            sidecarPaths = MODEL_SIDECAR_BY_DTYPE[dtype] ?: emptyList(),
             tokenizerPath = effectiveTokenizerPath,
             eosTokenIds = setOf(128001, 128009),
             numLayers = 16,
@@ -213,8 +251,7 @@ object SupportedLLMs {
             defaultSystemPrompt = "You are a helpful assistant.",
             roleTokenIds = roles,
             scalarPosId = false,
-            usePositionIds = false,
-            sidecarPaths = listOf("llm/llama-3.2-1B_q4/model_q4.onnx_data"),
+            usePositionIds = USE_POSITION_IDS_BY_DTYPE[dtype] ?: false,
             vocabSize = 128256
         )
     }

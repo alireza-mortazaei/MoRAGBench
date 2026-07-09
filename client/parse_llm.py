@@ -84,13 +84,13 @@ def parse_llm(llm: LLM, token: str | None, llm_dir: str):
 
         model_name, sidecar_names = MODEL_NAME_BY_DTYPE[dtype]
 
-        # Build list of model files to download from new repo
+        # Build list of model files to download from new repo (better maintained, all dtypes)
         model_patterns = [f"onnx/{model_name}"]
         for sidecar in sidecar_names:
             model_patterns.append(f"onnx/{sidecar}")
 
         try:
-            # Download model files from new repo (supports all dtypes)
+            # Download model weights from new repo
             snapshot_download(
                 repo_id=llm_hf_path,
                 local_dir=dir_path,
@@ -98,8 +98,9 @@ def parse_llm(llm: LLM, token: str | None, llm_dir: str):
                 allow_patterns=model_patterns,
             )
 
-            # Download tokenizer from GENAI-ONNX repo (compatible format
-            # for the native tokenizer library used in the Android app)
+            # Download tokenizer from GENAI-ONNX repo — required because the
+            # native qwen_tokenizer library fails to initialize with the new
+            # repo's tokenizer.json format (confirmed: "Failed to init tokenizer")
             genai_folder = "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4"
             snapshot_download(
                 repo_id="onnx-community/Llama-3.2-1B-Instruct-GENAI-ONNX",

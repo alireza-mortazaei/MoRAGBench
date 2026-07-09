@@ -521,7 +521,6 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
                     }
 
             onTokenGenerated(nextToken)
-
             if (samplerBuffers.tokenFreq[nextToken] == 0) {
                 if (samplerBuffers.seenCount < samplerBuffers.seenTokens.size) {
                     samplerBuffers.seenTokens[samplerBuffers.seenCount++] = nextToken
