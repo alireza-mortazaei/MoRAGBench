@@ -154,6 +154,8 @@ class CpuSampler {
 
 class PowerSampler(private val context: Context) {
     private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+    private val isOppo =
+        android.os.Build.MANUFACTURER.equals("OPPO", ignoreCase = true)
 
     private val currentStats = FloatStats()
     private val voltageStats = FloatStats()
@@ -217,13 +219,24 @@ class PowerSampler(private val context: Context) {
                 batteryState == BatteryManager.BATTERY_STATUS_FULL
 
             // Android normally reports battery voltage in millivolts.
-            // Treat implausibly low values as unavailable instead of discarding the whole sample.
-            val voltageMilliVolts = batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
-            val voltageV =
-                if (voltageMilliVolts > 1000)
-                    voltageMilliVolts / 1000f
-                else
-                    null
+            // Some OPPO firmware reports a truncated standard value such as 4 while exposing
+            // the usable millivolt value through the vendor-specific battery_now_voltage_type extra.
+            val standardVoltageMilliVolts =
+                batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0
+            val oppoVoltageMilliVolts =
+                batteryStatus?.getIntExtra("battery_now_voltage_type", 0) ?: 0
+
+            val voltageMilliVolts =
+                when {
+                    standardVoltageMilliVolts > 1000 ->
+                        standardVoltageMilliVolts
+                    isOppoCph2791 && oppoVoltageMilliVolts > 1000 ->
+                        oppoVoltageMilliVolts
+                    else ->
+                        null
+                }
+
+            val voltageV = voltageMilliVolts?.div(1000f)
 
             // Android reports battery temperature in tenths of a degree Celsius.
             val temperatureC =
