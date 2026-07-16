@@ -31,6 +31,7 @@ data class MemoryMetrics(
 enum class CurrentMeasurementSource {
     CURRENT_NOW,
     CURRENT_AVERAGE,
+    OPPO_CPH2791_CURRENT_NOW_MA,
     MIXED
 }
 
@@ -156,6 +157,8 @@ class PowerSampler(private val context: Context) {
     private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val isOppo =
         android.os.Build.MANUFACTURER.equals("OPPO", ignoreCase = true)
+    private val isOppoCph2791 =
+        isOppo && android.os.Build.MODEL.equals("CPH2791", ignoreCase = true)
 
     private val currentStats = FloatStats()
     private val voltageStats = FloatStats()
@@ -166,6 +169,7 @@ class PowerSampler(private val context: Context) {
     private var isCharging = false
     private var usedCurrentNow = false
     private var usedCurrentAverage = false
+    private var usedOppoCph2791CurrentNowNormalization = false
     private var startChargeCounterMicroAh: Int? = null
     private var endChargeCounterMicroAh: Int? = null
     private var startChargeCounterTimeMs: Long? = null
@@ -190,22 +194,45 @@ class PowerSampler(private val context: Context) {
                 endChargeCounterTimeMs = sampleTimeMs
             }
 
-            val currentNowMicroAmps = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-            val currentAverageMicroAmps = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
-            val currentMicroAmps = when {
-                currentNowMicroAmps != 0 && currentNowMicroAmps != Int.MIN_VALUE -> {
-                    usedCurrentNow = true
-                    currentNowMicroAmps
-                }
-                currentAverageMicroAmps != 0 && currentAverageMicroAmps != Int.MIN_VALUE -> {
-                    usedCurrentAverage = true
-                    currentAverageMicroAmps
-                }
-                else -> null
-            }
+            val currentNowRaw =
+                batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            val currentAverageRaw =
+                batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
 
-            // Some devices return negative values when discharging. Use magnitude for battery-side power estimate.
-            val currentMa = currentMicroAmps?.let { abs(it) / 1000f }
+            // Keep the source together with the raw reading so normalization is decided
+            // independently for every sample.
+            val currentReading =
+                when {
+                    currentNowRaw != 0 && currentNowRaw != Int.MIN_VALUE -> {
+                        usedCurrentNow = true
+                        if (isOppoCph2791) {
+                            usedOppoCph2791CurrentNowNormalization = true
+                        }
+                        currentNowRaw to true
+                    }
+                    currentAverageRaw != 0 && currentAverageRaw != Int.MIN_VALUE -> {
+                        usedCurrentAverage = true
+                        currentAverageRaw to false
+                    }
+                    else ->
+                        null
+                }
+
+            // Android specifies battery current properties in microamperes. On the
+            // validated OPPO CPH2791, CURRENT_NOW behaves as milliamperes instead.
+            // CURRENT_AVERAGE keeps the standard conversion; it was unsupported on
+            // the tested device and returned Int.MIN_VALUE.
+            val signedCurrentMa =
+                currentReading?.let { (rawCurrent, fromCurrentNow) ->
+                    if (isOppoCph2791 && fromCurrentNow)
+                        rawCurrent.toFloat()
+                    else
+                        rawCurrent / 1000f
+                }
+
+            // Preserve sign during normalization, then use magnitude for battery-side
+            // consumption and whole-device battery-power reporting.
+            val currentMa = signedCurrentMa?.let(::abs)
 
             // Read battery-broadcast metrics independently of current availability.
             val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
@@ -278,10 +305,16 @@ class PowerSampler(private val context: Context) {
                     null,
             currentSource =
                 when {
-                    usedCurrentNow && usedCurrentAverage -> CurrentMeasurementSource.MIXED
-                    usedCurrentNow -> CurrentMeasurementSource.CURRENT_NOW
-                    usedCurrentAverage -> CurrentMeasurementSource.CURRENT_AVERAGE
-                    else -> null
+                    usedCurrentNow && usedCurrentAverage ->
+                        CurrentMeasurementSource.MIXED
+                    usedOppoCph2791CurrentNowNormalization ->
+                        CurrentMeasurementSource.OPPO_CPH2791_CURRENT_NOW_MA
+                    usedCurrentNow ->
+                        CurrentMeasurementSource.CURRENT_NOW
+                    usedCurrentAverage ->
+                        CurrentMeasurementSource.CURRENT_AVERAGE
+                    else ->
+                        null
                 },
             voltageV =
                 if (voltageStats.hasSamples())
