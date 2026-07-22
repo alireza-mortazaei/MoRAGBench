@@ -11,6 +11,7 @@ data class RoleTokenIds(
 // Main configuration class for defining model behavior, structure, and prompting format
 data class ModelConfig(
     val modelName: String,                       // Display name of the model (e.g., "Qwen2_5")
+    val modelFamily: String = "qwen",             // Model family: "qwen" or "llama" — controls prompt format
     val modelPath: String = "llm/qwen2.5-0.5B_int8/model.onnx",        // File path to the ONNX model inside assets
     val tokenizerPath: String = "llm/qwen2.5-0.5B_int8/tokenizer.json",        // File path to the ONNX model inside assets
     var backend: String = "cpu",          // Execution backend: CPU, XNNPACK, or NNAPI

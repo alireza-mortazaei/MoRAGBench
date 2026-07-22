@@ -41,24 +41,6 @@ object SupportedLLMs {
 
             normalizeModelKey("Llama-3.2-1B-Instruct-Q4") to
                     { ctx, o -> buildLlama32_1B(ctx, "q4", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Q4F16") to
-                    { ctx, o -> buildLlama32_1B(ctx, "q4f16", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Int8") to
-                    { ctx, o -> buildLlama32_1B(ctx, "int8", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Uint8") to
-                    { ctx, o -> buildLlama32_1B(ctx, "uint8", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Bnb4") to
-                    { ctx, o -> buildLlama32_1B(ctx, "bnb4", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Float16") to
-                    { ctx, o -> buildLlama32_1B(ctx, "float16", o) },
-
-            normalizeModelKey("Llama-3.2-1B-Instruct-Float32") to
-                    { ctx, o -> buildLlama32_1B(ctx, "float32", o) },
         )
 
     fun getAll(context: Context): List<ModelConfig> {
@@ -120,6 +102,7 @@ object SupportedLLMs {
 
         return ModelConfig(
             modelName = "Qwen2.5-0.5B-Instruct",
+            modelFamily = "qwen",
             modelPath = overrides?.modelPath
                 ?: "llm/$modelName/model.onnx",
             tokenizerPath = effectiveTokenizerPath,
@@ -169,6 +152,7 @@ object SupportedLLMs {
 
         return ModelConfig(
             modelName = "Qwen2.5-1.5B-Instruct",
+            modelFamily = "qwen",
             modelPath = overrides?.modelPath
                 ?: "llm/qwen2.5-1.5B_int8/model.onnx",
             tokenizerPath = effectiveTokenizerPath,
@@ -239,6 +223,7 @@ object SupportedLLMs {
         )
         return ModelConfig(
             modelName = "Llama-3.2-1B-Instruct",
+            modelFamily = "llama",
             modelPath = overrides?.modelPath
                 ?: "$modelFolder/model.onnx",
             sidecarPaths = MODEL_SIDECAR_BY_DTYPE[dtype] ?: emptyList(),

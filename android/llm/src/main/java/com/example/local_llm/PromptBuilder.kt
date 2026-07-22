@@ -4,8 +4,8 @@ class PromptBuilder(
     private val tokenizer: TokenizerBridge,
     private val config: ModelConfig
 ) {
-    fun buildPromptTokens(messages: List<Message>, intent: PromptIntent, systemPrompt: String, maxTokens: Int = 500): IntArray {
-        val isLlama = config.modelName.contains("Llama", ignoreCase = true)
+    fun buildPromptTokens(messages: List<Message>, intent: PromptIntent, systemPrompt: String, modelFamily: String, maxTokens: Int = 500): IntArray {
+        val isLlama = modelFamily == "llama"
         return when (intent) {
             PromptIntent.CHAT -> buildQwenChatPrompt(messages, systemPrompt, maxTokens)
             PromptIntent.QA -> if (isLlama) buildLlamaQA(messages[0].text, systemPrompt) else buildQwenQA(messages[0].text, systemPrompt)
