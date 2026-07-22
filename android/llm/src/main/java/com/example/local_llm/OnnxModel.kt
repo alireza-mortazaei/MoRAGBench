@@ -91,7 +91,9 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
                     }
                 }
             } catch (e: Exception) {
-                // Sidecar file does not exist or could not be copied — skip silently
+                throw IllegalStateException(
+                    "Failed to copy required sidecar file: $sidecarPath", e
+                )
             }
         }
         //end modifications
