@@ -7,7 +7,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStreamWriter
 
-class JsonlWriter(file: File) {
+class JsonlWriter(file: File,append: Boolean = false) {
 
     // Resolve file path
     private val writer: BufferedWriter
@@ -37,7 +37,7 @@ class JsonlWriter(file: File) {
         }
 
         // Delete previous file if exists
-        if (file.exists()) {
+        if (!append && file.exists()) {
             file.delete()
         }
 

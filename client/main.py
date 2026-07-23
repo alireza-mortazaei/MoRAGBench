@@ -119,8 +119,8 @@ def push_dir_files(local_dir: str, remote_dir: str):
         if os.path.isfile(src):
             adb_push_files(src, remote_dir)
 
-def start_benchmark(test_type: TestType):
-    payload = {"test_type": test_type.value}
+def start_benchmark(test_type: TestType, resume: bool = False):
+    payload = {"test_type": test_type.value, "resume": resume}
     r = requests.post(
         HTTP_BASE + "/start_benchmark",
         json=payload
@@ -258,7 +258,7 @@ def main(args):
 
     print("\n==== Starting Benchmark ====\n")
     time.sleep(2)  # wait a bit for server to be ready
-    start_benchmark(test_type)
+    start_benchmark(test_type, resume=args.resume)
 
     # Poll for status
     display_status(status_stream(), test_type)
@@ -313,6 +313,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", "-d", required=True, help="ADB device serial number (adb devices)")
     parser.add_argument("--output_path", "-o", help="Path to output results json file.", default=f"{CLIENT_BASE}/benchmark_results")
     parser.add_argument("--set", action="append", default=[], help="Override dotted-key PATH=VALUE")
+    parser.add_argument("--resume", "-r",action="store_true",default=False,help="Resume a previously interrupted benchmark")
     args = parser.parse_args()
     
     main(args)
