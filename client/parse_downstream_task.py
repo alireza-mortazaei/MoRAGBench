@@ -149,7 +149,11 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
 
     elif name == DownstreamTaskName.NATURAL_QUESTIONS:
         # Natural Questions contains examples without short-answer annotations.
-        # Skip those because the current evaluation expects text references.
+        # Per Huzaifa's confirmation, we use the "text" field inside
+        # short_answers as the reference (this is the only field in the
+        # annotations that actually contains readable text; long_answer only
+        # has token positions, no text). Examples with no short answer text
+        # are skipped since the current evaluation expects text references.
         for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
             answer_texts = []
             for answer in item["annotations"]["short_answers"]:
