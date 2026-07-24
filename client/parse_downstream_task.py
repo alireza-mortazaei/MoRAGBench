@@ -13,7 +13,8 @@ DATASET_CONFIGS = {
     DownstreamTaskName.TRIVIA_QA: ("mandarjoshi/trivia_qa", "rc", "validation"),
     DownstreamTaskName.SQUAD: ("rajpurkar/squad_v2", "", "train"),
     DownstreamTaskName.HOTPOT_QA: ("hotpotqa/hotpot_qa", "distractor", "validation"),
-    DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation")
+    DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation"),
+    DownstreamTaskName.NATURAL_QUESTIONS: ("natural_questions", "dev", "validation")
 }
 
 def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str):
@@ -144,6 +145,43 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
 
             if passage not in documents_object.values():
                 documents_object[f"doc_{doc_id}"] = passage
+                doc_id += 1
+
+    elif name == DownstreamTaskName.NATURAL_QUESTIONS:
+        # Natural Questions contains examples without short-answer annotations.
+        # Per Huzaifa's confirmation, we use the "text" field inside
+        # short_answers as the reference (this is the only field in the
+        # annotations that actually contains readable text; long_answer only
+        # has token positions, no text). Examples with no short answer text
+        # are skipped since the current evaluation expects text references.
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            answer_texts = []
+            for answer in item["annotations"]["short_answers"]:
+                answer_texts.extend(answer["text"])
+
+            answer_texts = [answer for answer in answer_texts if answer.strip()]
+
+            if not answer_texts:
+                continue
+
+            questions.append(item["question"]["text"])
+            references.append(answer_texts)
+
+        task.limit = len(questions)
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            tokens = item["document"]["tokens"]["token"]
+            is_html = item["document"]["tokens"]["is_html"]
+            # Remove HTML markup tokens and keep only the readable document text
+            # before adding it to the retrieval corpus.
+            document_text = " ".join(
+                token for token, html_flag in zip(tokens, is_html)
+                if not html_flag
+            )
+
+            if document_text not in documents_object.values():
+                documents_object[f"doc_{doc_id}"] = document_text
                 doc_id += 1
     else:
         raise ValueError(f"{name} is not supported yet")

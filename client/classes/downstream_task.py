@@ -8,6 +8,7 @@ class DownstreamTaskName(Enum):
     SQUAD = "squad"
     HOTPOT_QA = "hotpot_qa"
     DROP = "drop"
+    NATURAL_QUESTIONS = "natural_questions"
 
 class CorpusScope(Enum):
     LIMITED = "limited" # Use documents from the "limit" questions only
