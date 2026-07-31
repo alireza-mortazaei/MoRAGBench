@@ -133,22 +133,14 @@ class TaskBenchmark(private val context: Context) {
                 val resultsDir = context.getExternalFilesDir(null)!!
                     .resolve(Constants.TASK_RESULTS_DIR)
                     .resolve(taskName)
-                val resumeCount = if (resume) {
-                    resultsDir.listFiles()
-                        ?.count { it.name.startsWith("overall_resume_") }
-                        ?.plus(1) ?: 1
-                } else 0
+
 
                 // Determine file names based on resume count
-                val overallFileName = if (resumeCount == 0)
-                    Constants.OVERALL_METRICS_FILE
-                else
-                    "${Constants.OVERALL_METRICS_FILE.removeSuffix(".json")}_resume_$resumeCount.json"
+                val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
 
-                val hardwareFileName = if (resumeCount == 0)
-                    Constants.HARDWARE_METRICS_FILE
-                else
-                    "${Constants.HARDWARE_METRICS_FILE.removeSuffix(".json")}_resume_$resumeCount.json"
+                val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
 
                 // Write overall metrics to file
                 val metricsFile = context.getExternalFilesDir(null)!!
@@ -169,6 +161,14 @@ class TaskBenchmark(private val context: Context) {
                 progress.fail(e.stackTraceToString())
             }
         }
+    }
+
+    private fun nextResumeFileName(resultsDir: File, baseFileName: String): String {
+        val base = baseFileName.removeSuffix(".json")
+        val highest = resultsDir.listFiles().orEmpty()
+            .mapNotNull { it.name.substringAfter("${base}_resume_", "").removeSuffix(".json").toIntOrNull() }
+            .maxOrNull() ?: 0
+        return "${base}_resume_${highest + 1}.json"
     }
 
     private suspend fun runBenchmark(
