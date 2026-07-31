@@ -48,7 +48,7 @@ def report_task_results(
     # Read resume runs
     resume_index = 1
     while True:
-        resume_path = f"{results_dir}/overall_resume_{resume_index}.json"
+        resume_path = f"{results_dir}/{overall_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"  
         if not os.path.exists(resume_path):
             break
         with open(resume_path, "r") as f:
@@ -71,7 +71,7 @@ def report_task_results(
     # Read resume runs
     resume_index = 1
     while True:
-        resume_path = f"{results_dir}/hardware_metrics_resume_{resume_index}.json"
+        resume_path = f"{results_dir}/{hardware_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"
         if not os.path.exists(resume_path):
             break
         with open(resume_path, "r") as f:

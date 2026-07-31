@@ -269,6 +269,12 @@ def main(args):
         results_phone_path = f"{SERVER_BASE}/{TASK_DIR}/{SERVER_RESULTS_DIR}/{bench_model.downstream_task.name.value}/."
     else:
         results_phone_path = f"{SERVER_BASE}/{ANN_DIR}/{SERVER_RESULTS_DIR}/{bench_model.ann_dataset.name.value}/."
+
+    # Clean up old local results if not resuming
+    if not args.resume and os.path.exists(args.output_path):
+        for f in os.listdir(args.output_path):
+            os.remove(os.path.join(args.output_path, f))
+            
     os.makedirs(args.output_path, exist_ok=True)
     adb_pull(results_phone_path, args.output_path)
         

@@ -89,6 +89,15 @@ class TaskBenchmark(private val context: Context) {
 
         // Record start time
         val benchmarkTimeStart = System.nanoTime()
+
+        // Clean up old result files if not resuming
+        if (!resume) {
+            val resultsDir = context.getExternalFilesDir(null)!!
+                .resolve(Constants.TASK_RESULTS_DIR)
+                .resolve(taskName)
+            resultsDir.listFiles()?.forEach { it.delete() }
+        }
+
         // ****** Read downstream tasks ******
         val taskFiles = parser.readDownstreamTaskFiles(taskName)
 
@@ -134,12 +143,12 @@ class TaskBenchmark(private val context: Context) {
                 val overallFileName = if (resumeCount == 0)
                     Constants.OVERALL_METRICS_FILE
                 else
-                    "overall_resume_$resumeCount.json"
+                    "${Constants.OVERALL_METRICS_FILE.removeSuffix(".json")}_resume_$resumeCount.json"
 
                 val hardwareFileName = if (resumeCount == 0)
                     Constants.HARDWARE_METRICS_FILE
                 else
-                    "hardware_metrics_resume_$resumeCount.json"
+                    "${Constants.HARDWARE_METRICS_FILE.removeSuffix(".json")}_resume_$resumeCount.json"
 
                 // Write overall metrics to file
                 val metricsFile = context.getExternalFilesDir(null)!!
