@@ -32,6 +32,7 @@ enum class CurrentMeasurementSource {
     CURRENT_NOW,
     CURRENT_AVERAGE,
     OPPO_CPH2791_CURRENT_NOW_MA,
+    ONEPLUS_CPH2653_UNSUPPORTED,
     MIXED
 }
 
@@ -57,20 +58,44 @@ data class FloatMetricStats(
 
 @Serializable
 enum class ChargeCounterInterpretation {
+    // The values describe the net change in battery charge during sampling.
+    // They may include charging from an external power source and therefore do
+    // not necessarily represent the benchmark's total device energy consumption.
     NET_BATTERY_CHANGE
 }
 
 @Serializable
 data class ChargeCounterMetrics(
+    // Describes how the charge-counter fields should be interpreted.
     val interpretation: ChargeCounterInterpretation,
+
+    // First valid BATTERY_PROPERTY_CHARGE_COUNTER value reported by Android, in microamp-hours (µAh).
     val startMicroAh: Int,
+
+    // Last valid BATTERY_PROPERTY_CHARGE_COUNTER value reported by Android, in microamp-hours (µAh).
     val endMicroAh: Int,
+
+    // Net charge change in microamp-hours (µAh): startMicroAh - endMicroAh.
     // Positive means net battery discharge; negative means net battery charge.
     val consumedMicroAh: Int,
+
+    // Elapsed monotonic time in milliseconds (ms) between the first and last valid samples.
     val durationMs: Long,
+
+    // Estimated battery-side discharged energy in joules:
+    // consumedMicroAh / 1,000,000 * 3600 * meanVoltageV.
+    // Null when the battery gained charge, voltage is unavailable or implausible,
+    // or the charge-counter units cannot be validated.
     val estimatedEnergyJ: Float?,
-    // Interval-derived estimates from charge-counter change, not instantaneous samples.
+
+    // Interval-average battery current in milliamperes (mA), derived from charge-counter change:
+    // consumedMicroAh * 3600 / durationMs.
+    // Positive means net discharge; negative means net charge.
     val intervalAverageBatteryCurrentMa: Float?,
+
+    // Interval-average battery-side power in milliwatts (mW):
+    // intervalAverageBatteryCurrentMa * meanVoltageV.
+    // Positive means net battery discharge; negative means net battery charge.
     val intervalAverageBatteryPowerMw: Float?
 )
 
@@ -159,6 +184,9 @@ class PowerSampler(private val context: Context) {
         android.os.Build.MANUFACTURER.equals("OPPO", ignoreCase = true)
     private val isOppoCph2791 =
         isOppo && android.os.Build.MODEL.equals("CPH2791", ignoreCase = true)
+    private val isOnePlusCph2653 =
+        android.os.Build.MANUFACTURER.equals("OnePlus", ignoreCase = true) &&
+            android.os.Build.MODEL.equals("CPH2653", ignoreCase = true)
 
     private val currentStats = FloatStats()
     private val voltageStats = FloatStats()
@@ -170,6 +198,7 @@ class PowerSampler(private val context: Context) {
     private var usedCurrentNow = false
     private var usedCurrentAverage = false
     private var usedOppoCph2791CurrentNowNormalization = false
+    private var encounteredUnsupportedOnePlusCurrent = false
     private var startChargeCounterMicroAh: Int? = null
     private var endChargeCounterMicroAh: Int? = null
     private var startChargeCounterTimeMs: Long? = null
@@ -201,16 +230,30 @@ class PowerSampler(private val context: Context) {
 
             // Keep the source together with the raw reading so normalization is decided
             // independently for every sample.
+            val hasCurrentNow =
+                currentNowRaw != 0 && currentNowRaw != Int.MIN_VALUE
+            val hasCurrentAverage =
+                currentAverageRaw != 0 && currentAverageRaw != Int.MIN_VALUE
+
+            // OnePlus CPH2653 exposes battery-current properties with
+            // unvalidated vendor semantics. CURRENT_NOW does not follow the
+            // standard microamp contract, and CURRENT_AVERAGE has not been
+            // independently validated. Do not publish fabricated current or
+            // power values.
             val currentReading =
                 when {
-                    currentNowRaw != 0 && currentNowRaw != Int.MIN_VALUE -> {
+                    isOnePlusCph2653 && (hasCurrentNow || hasCurrentAverage) -> {
+                        encounteredUnsupportedOnePlusCurrent = true
+                        null
+                    }
+                    hasCurrentNow -> {
                         usedCurrentNow = true
                         if (isOppoCph2791) {
                             usedOppoCph2791CurrentNowNormalization = true
                         }
                         currentNowRaw to true
                     }
-                    currentAverageRaw != 0 && currentAverageRaw != Int.MIN_VALUE -> {
+                    hasCurrentAverage -> {
                         usedCurrentAverage = true
                         currentAverageRaw to false
                     }
@@ -230,8 +273,8 @@ class PowerSampler(private val context: Context) {
                         rawCurrent / 1000f
                 }
 
-            // Preserve sign during normalization, then use magnitude for battery-side
-            // consumption and whole-device battery-power reporting.
+            // Preserve sign during normalization, then use magnitude for
+            // battery-side current and power reporting.
             val currentMa = signedCurrentMa?.let(::abs)
 
             // Read battery-broadcast metrics independently of current availability.
@@ -309,6 +352,8 @@ class PowerSampler(private val context: Context) {
                         CurrentMeasurementSource.MIXED
                     usedOppoCph2791CurrentNowNormalization ->
                         CurrentMeasurementSource.OPPO_CPH2791_CURRENT_NOW_MA
+                    encounteredUnsupportedOnePlusCurrent ->
+                        CurrentMeasurementSource.ONEPLUS_CPH2653_UNSUPPORTED
                     usedCurrentNow ->
                         CurrentMeasurementSource.CURRENT_NOW
                     usedCurrentAverage ->
@@ -338,6 +383,13 @@ class PowerSampler(private val context: Context) {
     }
 
     private fun buildChargeCounterMetrics(): ChargeCounterMetrics? {
+        // Charge-counter units on OnePlus CPH2653 could not be validated.
+        // Suppress the block rather than labeling vendor-specific raw values as
+        // microamp-hours or deriving misleading current, power, and energy values.
+        if (isOnePlusCph2653) {
+            return null
+        }
+
         val start = startChargeCounterMicroAh ?: return null
         val end = endChargeCounterMicroAh ?: return null
         val startTimeMs = startChargeCounterTimeMs ?: return null
