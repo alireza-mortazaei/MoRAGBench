@@ -68,8 +68,8 @@ class HttpServer(private val context: Context, port: Int = Constants.PORT): Nano
                     // Parse JSON
                     val json = JSONObject(rawJson)
                     val testType = json.optString("test_type", "task")
-
-                    val testStatus = BenchmarkManager.startBenchmarkAsync(testType)
+                    val resume = json.optBoolean("resume", false)
+                    val testStatus = BenchmarkManager.startBenchmarkAsync(testType,resume)
 
                     return newFixedLengthResponse(
                         Response.Status.OK,

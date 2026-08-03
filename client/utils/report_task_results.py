@@ -2,6 +2,7 @@ import json
 import numpy as np
 from utils.metrics import get_task_metrics
 from classes.downstream_task import DownstreamTask
+import os
 
 def load_jsonl(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -34,17 +35,51 @@ def report_task_results(
         "overall": {},
         "task": {}
     }
+
+    # ---- Read overall metrics (all runs) ----
+    overall_runs = []
     
-    with open(f"{results_dir}/{overall_metrics_file}", "r") as f:
-        overall_metrics = json.load(f)
+    # Read base run
+    base_overall_path = f"{results_dir}/{overall_metrics_file}"
+    if os.path.exists(base_overall_path):
+        with open(base_overall_path, "r") as f:
+            overall_runs.append(json.load(f))
     
-    results["overall"] = overall_metrics
+    # Read resume runs
+    resume_index = 1
+    while True:
+        resume_path = f"{results_dir}/{overall_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"  
+        if not os.path.exists(resume_path):
+            break
+        with open(resume_path, "r") as f:
+            overall_runs.append(json.load(f))
+        resume_index += 1
+
+
     
-    with open(f"{results_dir}/{hardware_metrics_file}", "r") as f:
-        hardware_metrics = json.load(f)
+    results["overall"] = overall_runs if len(overall_runs) > 1 else (overall_runs[0] if overall_runs else {})
+
+    # ---- Read hardware metrics (all runs) ----
+    hardware_runs = []
     
-    results["hardware"] = hardware_metrics
+    # Read base run
+    base_hardware_path = f"{results_dir}/{hardware_metrics_file}"
+    if os.path.exists(base_hardware_path):
+        with open(base_hardware_path, "r") as f:
+            hardware_runs.append(json.load(f))
     
+    # Read resume runs
+    resume_index = 1
+    while True:
+        resume_path = f"{results_dir}/{hardware_metrics_file.removesuffix('.json')}_resume_{resume_index}.json"
+        if not os.path.exists(resume_path):
+            break
+        with open(resume_path, "r") as f:
+            hardware_runs.append(json.load(f))
+        resume_index += 1
+    
+    results["hardware"] = hardware_runs if len(hardware_runs) > 1 else (hardware_runs[0] if hardware_runs else {})   
+     
     result_obj = {
         "name": task.name.value,
         "generation_metrics": {},

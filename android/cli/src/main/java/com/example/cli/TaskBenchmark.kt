@@ -74,7 +74,7 @@ class TaskBenchmark(private val context: Context) {
         benchmarkJob = null
     }
 
-    fun start() {
+    fun start(resume: Boolean = false) {
         val taskName = taskConfig.downstreamTask.name
 
         // Init Logger
@@ -89,6 +89,14 @@ class TaskBenchmark(private val context: Context) {
 
         // Record start time
         val benchmarkTimeStart = System.nanoTime()
+
+        // Clean up old result files if not resuming
+        if (!resume) {
+            val resultsDir = context.getExternalFilesDir(null)!!
+                .resolve(Constants.TASK_RESULTS_DIR)
+                .resolve(taskName)
+            resultsDir.listFiles()?.forEach { it.delete() }
+        }
 
         // ****** Read downstream tasks ******
         val taskFiles = parser.readDownstreamTaskFiles(taskName)
@@ -108,7 +116,7 @@ class TaskBenchmark(private val context: Context) {
                 hardwareMetricsEngine.start()
 
                 // Run the benchmark
-                runBenchmark(taskFiles, downstreamTask)
+                runBenchmark(taskFiles, downstreamTask,resume)
 
                 // Stop metrics engine
                 val metricsResult = hardwareMetricsEngine.stop()
@@ -121,18 +129,31 @@ class TaskBenchmark(private val context: Context) {
                 overallMetrics.benchmarkTimeMs = (benchmarkTimeEnd - benchmarkTimeStart) / 1_000_000L
                 overallMetrics.indexSource = progress.getIndexSource()
 
+                // Determine resume count for file naming
+                val resultsDir = context.getExternalFilesDir(null)!!
+                    .resolve(Constants.TASK_RESULTS_DIR)
+                    .resolve(taskName)
+
+
+                // Determine file names based on resume count
+                val overallFileName = if (!resume) Constants.OVERALL_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.OVERALL_METRICS_FILE)
+
+                val hardwareFileName = if (!resume) Constants.HARDWARE_METRICS_FILE
+                else nextResumeFileName(resultsDir, Constants.HARDWARE_METRICS_FILE)
+
                 // Write overall metrics to file
                 val metricsFile = context.getExternalFilesDir(null)!!
                     .resolve(Constants.TASK_RESULTS_DIR)
                     .resolve(taskName)
-                    .resolve(Constants.OVERALL_METRICS_FILE)
+                    .resolve(overallFileName)
                 writeMetricsToFile(overallMetrics, metricsFile)
 
                 // Save hardware metrics JSON
                 val hardwareMetricsFile = context.getExternalFilesDir(null)!!
                     .resolve(Constants.TASK_RESULTS_DIR)
                     .resolve(taskName)
-                    .resolve(Constants.HARDWARE_METRICS_FILE)
+                    .resolve(hardwareFileName)
                 hardwareMetricsEngine.writeMetricsJson(metricsResult, hardwareMetricsFile)
 
             } catch (e: Exception) {
@@ -142,9 +163,18 @@ class TaskBenchmark(private val context: Context) {
         }
     }
 
+    private fun nextResumeFileName(resultsDir: File, baseFileName: String): String {
+        val base = baseFileName.removeSuffix(".json")
+        val highest = resultsDir.listFiles().orEmpty()
+            .mapNotNull { it.name.substringAfter("${base}_resume_", "").removeSuffix(".json").toIntOrNull() }
+            .maxOrNull() ?: 0
+        return "${base}_resume_${highest + 1}.json"
+    }
+
     private suspend fun runBenchmark(
         taskFiles: Map<String, JsonElement>,
-        downstreamTask: DownstreamTask
+        downstreamTask: DownstreamTask,
+        resume: Boolean = false
     ) {
         // ****** Initialize embedding model ******
         LiveLogger.info("Initializing embedding model...")
@@ -246,7 +276,8 @@ class TaskBenchmark(private val context: Context) {
             embeddingGenerator = embeddingGenerator,
             faissIndex = faissIndex,
             task = downstreamTask,
-            llm = llm
+            llm = llm,
+            resume = resume
         )
 
         // Add index stats based on type
@@ -700,23 +731,47 @@ class TaskBenchmark(private val context: Context) {
         embeddingGenerator: EmbeddingGenerator,
         faissIndex: FaissIndex,
         task: DownstreamTask,
-        llm: LocalLLM
+        llm: LocalLLM,
+        resume: Boolean = false
     ) {
         // Update progress: Start Evaluation
         progress.startEvaluation()
 
         val k = taskConfig.ragPipeline.faiss.topK
-            val hash = getHash(task)
+        val hash = getHash(task)
         val db = getDB(hash, context)
 
-        val writer = JsonlWriter(
-            file = context.getExternalFilesDir(null)!!
-                .resolve(Constants.TASK_RESULTS_DIR)
-                .resolve(task.name)
-                .resolve(Constants.MAIN_RESULTS_FILE)
-        )
+
+        val resultsFile = context.getExternalFilesDir(null)!!
+            .resolve(Constants.TASK_RESULTS_DIR)
+            .resolve(task.name)
+            .resolve(Constants.MAIN_RESULTS_FILE)
+
+        val completedCount = if (resume && resultsFile.exists()) {
+            val lines = resultsFile.readLines().filter { it.isNotBlank() }
+            if (lines.isNotEmpty()) {
+                // Remove last line: will be re-processed to handle mid-write crashes
+                resultsFile.writeText(lines.dropLast(1).joinToString("\n") + if (lines.size > 1) "\n" else "")
+            }
+            maxOf(0, lines.size - 1)
+        } else {
+            0
+        }
+
+        if (completedCount > 0) {
+            LiveLogger.info("Resuming from question $completedCount / ${questions.size}")
+        }
+
+        val writer = JsonlWriter(file = resultsFile, append = resume)
+
         try {
             questions.forEachIndexed { index, question ->
+                if (index < completedCount) {
+                    progress.incrementQuestion()
+                    return@forEachIndexed
+                }
+
+
                 processQuestion(
                     questionIndex = index,
                     question = question.jsonPrimitive.content,

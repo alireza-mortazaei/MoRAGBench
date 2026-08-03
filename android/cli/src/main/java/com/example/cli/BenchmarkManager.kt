@@ -22,7 +22,7 @@ object BenchmarkManager {
         appContext = context.applicationContext
     }
 
-    fun startBenchmarkAsync(testType: String): String? {
+    fun startBenchmarkAsync(testType: String, resume: Boolean = false): String? {
         this.testType = testType
 
         when (testType) {
@@ -33,7 +33,7 @@ object BenchmarkManager {
                 }
 
                 taskBenchmark = TaskBenchmark(appContext).also {
-                    it.start()
+                    it.start(resume)
                 }
 
                 return "Test started successfully"
