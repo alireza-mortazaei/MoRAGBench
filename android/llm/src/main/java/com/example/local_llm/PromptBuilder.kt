@@ -4,10 +4,11 @@ class PromptBuilder(
     private val tokenizer: TokenizerBridge,
     private val config: ModelConfig
 ) {
-    fun buildPromptTokens(messages: List<Message>, intent: PromptIntent, systemPrompt: String, maxTokens: Int = 500): IntArray {
+    fun buildPromptTokens(messages: List<Message>, intent: PromptIntent, systemPrompt: String, modelFamily: String, maxTokens: Int = 500): IntArray {
+        val isLlama = modelFamily == "llama"
         return when (intent) {
             PromptIntent.CHAT -> buildQwenChatPrompt(messages, systemPrompt, maxTokens)
-            PromptIntent.QA -> buildQwenQA(messages[0].text, systemPrompt)
+            PromptIntent.QA -> if (isLlama) buildLlamaQA(messages[0].text, systemPrompt) else buildQwenQA(messages[0].text, systemPrompt)
         }
     }
 
@@ -29,6 +30,32 @@ class PromptBuilder(
 
             addAll(config.roleTokenIds.assistantStart)
         }.toIntArray()
+    }
+    private fun buildLlamaQA(userInput: String, systemPrompt: String): IntArray {
+        val userPrompt = "Question: $userInput\nAnswer:"
+
+        val systemTokens = tokenizer.encode(systemPrompt)
+        val userTokens = tokenizer.encode(userPrompt)
+        val newlineTokens = tokenizer.encode("\n\n").toList()
+        val bosToken = tokenizer.getTokenId("<|begin_of_text|>")
+
+        val result = buildList {
+            add(bosToken)
+
+            addAll(config.roleTokenIds.systemStart)
+            addAll(newlineTokens)
+            addAll(systemTokens.toList())
+            add(config.roleTokenIds.endToken)
+
+            addAll(config.roleTokenIds.userStart)
+            addAll(newlineTokens)
+            addAll(userTokens.toList())
+            add(config.roleTokenIds.endToken)
+
+            addAll(config.roleTokenIds.assistantStart)
+            addAll(newlineTokens)
+        }.toIntArray()
+        return result
     }
 
     fun buildQwenChatPrompt(messages: List<Message>, systemPrompt: String, maxTokens: Int = 500): IntArray {

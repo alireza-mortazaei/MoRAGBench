@@ -82,8 +82,7 @@ class LocalLLM(private val context: Context, private val config: ModelConfig) {
         val messages = mutableListOf(
             Message(userPrompt, isUser = true)
         )
-
-        val inputIds = promptBuilder.buildPromptTokens(messages, intent, systemPrompt, maxTokens)
+        val inputIds = promptBuilder.buildPromptTokens(messages, intent, systemPrompt, config.modelFamily, maxTokens)
 
         // Update metrics. Log number of input tokens
         metrics.inputTokens = inputIds.size

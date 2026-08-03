@@ -78,6 +78,25 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
             }
         }
 
+
+        // Copy sidecar weight files if specified in config
+        for (sidecarPath in config.sidecarPaths) {
+            try {
+                val dataInputStream = assetManager.open(sidecarPath)
+                val outDataFile = File(context.filesDir, sidecarPath)
+                outDataFile.parentFile?.mkdirs()
+                dataInputStream.use { input ->
+                    FileOutputStream(outDataFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "Failed to copy required sidecar file: $sidecarPath", e
+                )
+            }
+        }
+        //end modifications
         return outFile
     }
 
@@ -397,9 +416,11 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
 
             val inputs = mutableMapOf(
                 "input_ids" to inputTensor,
-                "position_ids" to posTensor,
                 "attention_mask" to attnTensor
-            ).apply { putAll(past) }
+            ).apply {
+                if (config.usePositionIds) put("position_ids", posTensor)
+                putAll(past)
+            }
 
             val outputs = session.run(inputs)
 
@@ -469,9 +490,11 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
 
             val inputs = mutableMapOf(
                 "input_ids" to inputTensor,
-                "position_ids" to posTensor,
                 "attention_mask" to attnTensor
-            ).apply { putAll(past) }
+            ).apply {
+                if (config.usePositionIds) put("position_ids", posTensor)
+                putAll(past)
+            }
 
             val outputs = session.run(inputs)
 
@@ -500,7 +523,6 @@ class OnnxModel(private val context: Context, private val config: ModelConfig) {
                     }
 
             onTokenGenerated(nextToken)
-
             if (samplerBuffers.tokenFreq[nextToken] == 0) {
                 if (samplerBuffers.seenCount < samplerBuffers.seenTokens.size) {
                     samplerBuffers.seenTokens[samplerBuffers.seenCount++] = nextToken
