@@ -14,7 +14,8 @@ DATASET_CONFIGS = {
     DownstreamTaskName.SQUAD: ("rajpurkar/squad_v2", "", "train"),
     DownstreamTaskName.HOTPOT_QA: ("hotpotqa/hotpot_qa", "distractor", "validation"),
     DownstreamTaskName.DROP: ("ucinlp/drop", "", "validation"),
-    DownstreamTaskName.NATURAL_QUESTIONS: ("natural_questions", "dev", "validation")
+    DownstreamTaskName.NATURAL_QUESTIONS: ("natural_questions", "dev", "validation"),
+    DownstreamTaskName.MS_MARCO: ("microsoft/ms_marco", "v1.1", "validation")
 }
 
 def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str):
@@ -183,6 +184,30 @@ def parse_task(task: DownstreamTask, token: str | None, downstream_task_dir: str
             if document_text not in documents_object.values():
                 documents_object[f"doc_{doc_id}"] = document_text
                 doc_id += 1
+
+    elif name == DownstreamTaskName.MS_MARCO:
+        # MS MARCO already provides plain-text answers and passages, so no
+        # extra parsing (like token-joining or HTML filtering) is needed here.
+        # We use all available answers as references and all passages as the
+        # retrieval corpus, consistent with how DROP and Natural Questions
+        # are handled (rather than filtering to only the "is_selected" passage).
+        for item in tqdm(sampled_items, desc=f"Parsing questions for {name.value}"):
+            answer_texts = [answer for answer in item["answers"] if answer.strip()]
+
+            if not answer_texts:
+                continue
+
+            questions.append(item["query"])
+            references.append(answer_texts)
+
+        task.limit = len(questions)
+
+        doc_id = 0
+        for item in tqdm(items_for_corpus, desc=f"Parsing documents for {name.value}"):
+            for passage_text in item["passages"]["passage_text"]:
+                if passage_text not in documents_object.values():
+                    documents_object[f"doc_{doc_id}"] = passage_text
+                    doc_id += 1
     else:
         raise ValueError(f"{name} is not supported yet")
     
