@@ -29,10 +29,21 @@ data class MemoryMetrics(
 
 @Serializable
 enum class CurrentMeasurementSource {
+    // Standard Android BATTERY_PROPERTY_CURRENT_NOW, converted from µA to mA.
     CURRENT_NOW,
+
+    // Standard Android BATTERY_PROPERTY_CURRENT_AVERAGE, converted from µA to mA.
     CURRENT_AVERAGE,
+
+    // OPPO CPH2791 CURRENT_NOW, validated to behave as mA rather than the
+    // standard Android µA contract.
     OPPO_CPH2791_CURRENT_NOW_MA,
+
+    // OnePlus CPH2653 current properties could not be validated reliably, so
+    // current- and power-derived values are intentionally suppressed.
     ONEPLUS_CPH2653_UNSUPPORTED,
+
+    // Both CURRENT_NOW and CURRENT_AVERAGE contributed samples during the run.
     MIXED
 }
 
