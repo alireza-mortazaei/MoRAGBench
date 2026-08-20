@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Process
 import android.os.SystemClock
 import kotlinx.coroutines.*
@@ -17,7 +18,8 @@ import kotlin.math.abs
 data class MetricsResult(
     val memory: MemoryMetrics,
     val power: PowerMetrics?,
-    val cpu: CpuMetrics?
+    val cpu: CpuMetrics?,
+    val gpu: GpuMetrics?
 )
 
 @Serializable
@@ -119,6 +121,12 @@ data class CpuMetrics(
     val availableProcessors: Int
 )
 
+@Serializable
+data class GpuMetrics(
+    val usagePercent: FloatMetricStats,
+    val frequencyMHz: FloatMetricStats?
+)
+
 class FloatStats {
     private var sum = 0.0
     private var count = 0
@@ -186,6 +194,100 @@ class CpuSampler {
         }
 
         return (cpuDeltaMs.toFloat() / wallDeltaMs.toFloat()) * 100f
+    }
+}
+
+data class GpuSample(
+    val usagePercent: Float?,
+    val frequencyMHz: Float?
+)
+
+class GpuSampler {
+    private enum class GpuPlatform {
+        QUALCOMM_ADRENO,
+        MEDIATEK,
+        UNKNOWN
+    }
+
+    private val gpuPlatform = detectGpuPlatform()
+
+    private val qualcommGpuBusyPercentagePaths = listOf(
+        "/sys/kernel/gpu/gpu_busy",
+        "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
+        "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/gpu_busy_percentage"
+    )
+
+    private val qualcommGpuFrequencyMHzPaths = listOf(
+        "/sys/class/kgsl/kgsl-3d0/clock_mhz",
+        "/sys/devices/platform/soc/3d00000.qcom,kgsl-3d0/kgsl/kgsl-3d0/clock_mhz"
+    )
+
+    private fun detectGpuPlatform(): GpuPlatform {
+        val hardwareName = Build.HARDWARE.lowercase()
+
+        return when {
+            hardwareName.contains("qcom") -> GpuPlatform.QUALCOMM_ADRENO
+            hardwareName.startsWith("mt") -> GpuPlatform.MEDIATEK
+            else -> GpuPlatform.UNKNOWN
+        }
+    }
+
+    fun sample(): GpuSample {
+        return when (gpuPlatform) {
+            GpuPlatform.QUALCOMM_ADRENO ->
+                GpuSample(
+                    usagePercent = sampleUsagePercent(),
+                    frequencyMHz = sampleFrequencyMHz()
+                )
+
+            // GPU metrics are currently unsupported on MediaTek devices.
+            GpuPlatform.MEDIATEK ->
+                GpuSample(
+                    usagePercent = null,
+                    frequencyMHz = null
+                )
+
+            GpuPlatform.UNKNOWN ->
+                GpuSample(
+                    usagePercent = null,
+                    frequencyMHz = null
+                )
+        }
+    }
+
+    private fun sampleUsagePercent(): Float? {
+        return qualcommGpuBusyPercentagePaths
+            .asSequence()
+            .mapNotNull { path -> readFirstLineOrNull(path) }
+            .mapNotNull { rawValue ->
+                rawValue
+                    .replace("%", "")
+                    .trim()
+                    .toFloatOrNull()
+                    ?.takeIf { it in 0f..100f }
+            }
+            .firstOrNull()
+    }
+
+    private fun sampleFrequencyMHz(): Float? {
+        return qualcommGpuFrequencyMHzPaths
+            .asSequence()
+            .mapNotNull { path -> readFirstLineOrNull(path) }
+            .mapNotNull { rawValue ->
+                rawValue
+                    .trim()
+                    .toFloatOrNull()
+                    ?.takeIf { it.isFinite() && it >= 0f }
+            }
+            .firstOrNull()
+    }
+
+    private fun readFirstLineOrNull(path: String): String? {
+        return try {
+            File(path).useLines { lines -> lines.firstOrNull() }
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 
@@ -464,9 +566,12 @@ class HardwareMetricsEngine(
 ) {
     private val memoryStats = LongStats()
     private val cpuStats = FloatStats()
+    private val gpuUsageStats = FloatStats()
+    private val gpuFrequencyStats = FloatStats()
 
     val powerSampler = PowerSampler(context)
     private val cpuSampler = CpuSampler()
+    private val gpuSampler = GpuSampler()
 
     private var job: Job? = null
     private var memoryBefore: Long = 0
@@ -489,6 +594,11 @@ class HardwareMetricsEngine(
                     // CPU
                     cpuSampler.sample()?.let { cpuStats.add(it) }
 
+                    // GPU
+                    val gpuSample = gpuSampler.sample()
+                    gpuSample.usagePercent?.let { gpuUsageStats.add(it) }
+                    gpuSample.frequencyMHz?.let { gpuFrequencyStats.add(it) }
+
                     // Power
                     powerSampler.sample()
 
@@ -507,6 +617,9 @@ class HardwareMetricsEngine(
 
         memoryStats.add(MemorySampler.sample(context))
         cpuSampler.sample()?.let { cpuStats.add(it) }
+        val gpuSample = gpuSampler.sample()
+        gpuSample.usagePercent?.let { gpuUsageStats.add(it) }
+        gpuSample.frequencyMHz?.let { gpuFrequencyStats.add(it) }
         powerSampler.sample()
 
         val samplerStats = powerSampler.getStats()
@@ -548,6 +661,17 @@ class HardwareMetricsEngine(
                 )
             else null
 
+        val gpuMetrics =
+            if (gpuUsageStats.hasSamples())
+                GpuMetrics(
+                    usagePercent = FloatMetricStats(gpuUsageStats.mean(), gpuUsageStats.peak),
+                    frequencyMHz =
+                        if (gpuFrequencyStats.hasSamples())
+                            FloatMetricStats(gpuFrequencyStats.mean(), gpuFrequencyStats.peak)
+                        else null
+                )
+            else null
+
         return MetricsResult(
             memory = MemoryMetrics(
                 beforeMB = memoryBefore,
@@ -555,7 +679,8 @@ class HardwareMetricsEngine(
                 peakMB = memoryStats.peak
             ),
             power = powerMetrics,
-            cpu = cpuMetrics
+            cpu = cpuMetrics,
+            gpu = gpuMetrics
         )
     }
 
