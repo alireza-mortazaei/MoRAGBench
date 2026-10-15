@@ -24,6 +24,8 @@ from helpers import (
     adb_push_files,
     prepare_dirs,
     push_dir_files,
+    push_dir_files_if_missing,
+    push_dir_files_if_settings_match,
     start_service,
     stop_service,
 )
@@ -44,6 +46,7 @@ ANN_CONFIG_PATH = f"{ANN_DIR}/config.json"
 
 # Server dirs
 SERVER_RESULTS_DIR = "results"
+SETTINGS_NOTE = "dataset_settings.json"
 SERVER_ANN_DATASET_DIR = f"{SDCARD_BASE}/{ANN_DIR}/ann_dataset"
 
 # Client dir
@@ -130,6 +133,17 @@ def main(args):
         llm_name = f"{bench_model.rag_pipeline.llm.model_name.value}_{bench_model.rag_pipeline.llm.dtype.value}"
         embed_name = f"{bench_model.rag_pipeline.embedding.model_name.value}_{bench_model.rag_pipeline.embedding.dtype.value}"
 
+        # these settings decide what ends up in the dataset folder, so they get
+        # saved next to the data and compared later before skipping a push
+        dt = bench_model.downstream_task
+        task_settings = json.dumps({
+            "name": dt.name.value,
+            "sampling_method": dt.sampling_method.value,
+            "limit": dt.limit,
+            "corpus_limit": dt.corpus_limit,
+            "seed": dt.seed,
+        }, sort_keys=True)
+
         dirs_to_create = [
             TASK_DIR,
             f"{TASK_DIR}/downstream_task",
@@ -152,21 +166,28 @@ def main(args):
         parse_embedding(bench_model.rag_pipeline.embedding, bench_model.hf_token, EMBEDDING_DIR)
 
         print("\n==== Moving Files to Server ====\n")
-        push_dir_files(
+        with open(f"{DOWNSTREAM_TASK_DIR}/{task_name}/{SETTINGS_NOTE}", "w") as f:
+            f.write(task_settings)
+        push_dir_files_if_settings_match(
             device,
             f"{DOWNSTREAM_TASK_DIR}/{task_name}",
             f"{SDCARD_BASE}/{TASK_DIR}/downstream_task/{task_name}",
+            f"downstream_task/{task_name}",
+            SETTINGS_NOTE,
         )
-        push_dir_files(
+        push_dir_files_if_missing(
             device,
             f"{LLM_DIR}/{llm_name}",
             f"{SDCARD_BASE}/{TASK_DIR}/llm/{llm_name}",
+            f"llm/{llm_name}",
         )
-        push_dir_files(
+        push_dir_files_if_missing(
             device,
             f"{EMBEDDING_DIR}/{embed_name}",
             f"{SDCARD_BASE}/{TASK_DIR}/embedding/{embed_name}",
+            f"embedding/{embed_name}",
         )
+        # config changes every run anyway so just always send it fresh
         adb_push_files(device, f"{CLIENT_BASE}/{TASK_CONFIG_PATH}", f"{SDCARD_BASE}/{TASK_CONFIG_PATH}")
     else:
         dataset_name = bench_model.ann_dataset.name.value

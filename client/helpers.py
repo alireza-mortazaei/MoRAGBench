@@ -233,6 +233,34 @@ def push_dir_files(device, local_dir, remote_dir):
             adb_push_files(device, src, f"{remote_dir}/{name}")
 
 
+def remote_dir_has_files(device, remote_dir):
+    # is this folder already on the phone with something in it
+    check = f"[ -d '{remote_dir}' ] && [ \"$(ls -A '{remote_dir}' 2>/dev/null)\" ] && echo NONEMPTY || echo EMPTY"
+    return run(adb_cmd(device, "shell", check)) == "NONEMPTY"
+
+
+def push_dir_files_if_missing(device, local_dir, remote_dir, label):
+    # skip the push if the folder is already there from an earlier run
+    if remote_dir_has_files(device, remote_dir):
+        print(f"Skipping push for {label}, already exists on device")
+    else:
+        push_dir_files(device, local_dir, remote_dir)
+
+
+def push_dir_files_if_settings_match(device, local_dir, remote_dir, label, note_name):
+    # the app looks the folder up by dataset name so the name can't change,
+    # instead the settings are saved in a small note inside the folder.
+    # same note on the phone means same data, so no need to push again
+    import os
+    with open(os.path.join(local_dir, note_name), "r") as f:
+        local_note = f.read().strip()
+    remote_note = run(adb_cmd(device, "shell", f"cat '{remote_dir}/{note_name}' 2>/dev/null; true"))
+    if remote_note == local_note:
+        print(f"Skipping push for {label}, same settings already on device")
+    else:
+        push_dir_files(device, local_dir, remote_dir)
+
+
 # ── HTTP helpers ────────────────────────────────────────────────────────────────
 
 import requests
